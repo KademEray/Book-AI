@@ -125,41 +125,25 @@ llm = OllamaLLM()
 
 @app.route("/api/generate", methods=["POST"])
 def generate():
-    print("Anfrage erhalten")
-    data = request.json
-    user_input = data.get("user_input", "")
-    chat_id = data.get("chat_id", "default")  # Chat-ID aus der Anfrage
-
-    if not user_input:
-        print("Keine Eingabe erhalten")
-        return jsonify({"error": "Keine Eingabe erhalten"}), 400
-
     try:
-        print(f"User Input: {user_input}")
-
-        # Hole den aktuellen Chat-Verlauf
+        data = request.get_json()
+        user_input = data.get("user_input", "")
+        chat_id = data.get("chat_id", "default")
+        
         chat_history = get_chat_history(chat_id)
-        conversation_context = "\n\n".join(chat_history) if chat_history else ""
         
-        # Erstelle den Prompt mit dem Chat-Verlauf
-        prompt = f"""Bisherige Konversation:
-{conversation_context}
+        prompt = f"""Basierend auf dem folgenden Chat-Verlauf und der Frage des Benutzers, gib eine hilfreiche Antwort.
 
-User: {user_input}
+Chat-Verlauf:
+{chr(10).join(chat_history)}
 
-Bitte antworte basierend auf der bisherigen Konversation."""
+Benutzer: {user_input}
+Assistent:"""
 
-        # Generiere Antwort mit Ollama
         response = llm._call(prompt)
-        
-        # Speichere die neue Konversation
         add_conversation(user_input, response, chat_id)
         
-        return jsonify({
-            "response": response,
-            "chat_id": chat_id
-        })
-
+        return jsonify({"response": response})
     except Exception as e:
         print(f"Fehler bei der Anfrage: {e}")
         return jsonify({"error": f"Fehler bei der Kommunikation mit der KI: {e}"}), 500
