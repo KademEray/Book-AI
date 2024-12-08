@@ -1,10 +1,58 @@
 from flask import Flask, request, jsonify
+import json
+from sklearn.feature_extraction.text import HashingVectorizer
+from langchain_chroma import Chroma
+from langchain.embeddings.base import Embeddings
 import requests
+from datetime import datetime
 
 # Flask-Setup
 app = Flask(__name__)
 
-# Agentensystem
+class OllamaLLM:
+    """Wrapper für Ollama LLM."""
+    def _call(self, prompt):
+        try:
+            response = requests.post(
+                "http://localhost:11434/api/generate",
+                json={"model": "llama3.2:3b", "prompt": prompt, "stream": False},
+                timeout=3000
+            )
+            response.raise_for_status()
+            return response.json().get("response", "Fehler: Keine Antwort von Ollama.")
+        except requests.exceptions.RequestException as e:
+            return f"Fehler bei der Verbindung zu Ollama: {str(e)}"
+
+# Benutzerdefinierte Embedding-Funktion
+class CustomEmbeddingFunction(Embeddings):
+    def __init__(self, n_features=128):
+        print(f"Initializing HashingVectorizer with {n_features} features.")
+        self.vectorizer = HashingVectorizer(n_features=n_features, norm=None, alternate_sign=False)
+        self.dimension = n_features
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        try:
+            embeddings = self.vectorizer.transform(texts).toarray()
+            return embeddings.tolist()
+        except Exception as e:
+            print(f"Fehler bei der Batch-Embedding-Berechnung: {e}")
+            return [[0.0] * self.dimension] * len(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        try:
+            embedding = self.vectorizer.transform([text]).toarray()[0]
+            return embedding.tolist()
+        except Exception as e:
+            print(f"Fehler bei der Query-Embedding-Berechnung: {e}")
+            return [0.0] * self.dimension
+
+# Instanziiere die Embedding-Funktion und Chroma
+custom_embedding_function = CustomEmbeddingFunction(n_features=128)
+vectorstore = Chroma(
+    collection_name="conversation_context",
+    embedding_function=custom_embedding_function
+)
+
 class AgentSystem:
     def __init__(self):
         self.agents = []
@@ -12,104 +60,152 @@ class AgentSystem:
     def add_agent(self, agent_function, kontrolliert=False):
         self.agents.append({"function": agent_function, "kontrolliert": kontrolliert})
 
-    def run_agents(self, user_input):
+    def run_agents(self, user_input, chat_id="default"):
         response_data = {"steps": [], "final_response": ""}
-        context = user_input  # Initialer Kontext ist die Benutzer-Eingabe
-        previous_output = None
+        context = self.get_context(chat_id)
+
         for agent in self.agents:
-            result = agent["function"](context)
-            response_data["steps"].append(result["log"])
-            context = result["output"]  # Übergabe des Outputs an den nächsten Agenten
-            
-            # Kontrolliere den Output, falls aktiviert
-            if agent["kontrolliert"]:
-                validation_result = validation_agent(user_input, result["output"])
+            while True:
+                result = agent["function"](user_input, context)
+                print(f"Agent: {result['log']['agent']}, Status: {result['log']['status']}, Output: {result['log']['output']}")
+                response_data["steps"].append(result["log"])
+                context = result["output"]
+
+                if not agent["kontrolliert"]:
+                    break
+
+                validation_result = validation_agent(user_input, context, context)
                 response_data["steps"].append(validation_result["log"])
+                print(f"Validierung: {validation_result['log']['output']}")
 
-                # Falls die Validierung fehlschlägt, wiederhole den vorherigen Agenten
-                while validation_result["log"]["status"] == "failed":
-                    reason = validation_result["log"]["output"]
-                    result = agent["function"](context + f"\nBegründung für Anpassung: {reason}")
-                    response_data["steps"].append(result["log"])
-                    context = result["output"]
+                if validation_result["log"]["status"] == "completed":
+                    self.store_context(chat_id, user_input, context)
+                    break
 
-                    # Erneute Validierung
-                    validation_result = validation_agent(user_input, result["output"])
-                    response_data["steps"].append(validation_result["log"])
+                context += f"\nBegründung für Wiederholung: {validation_result['log']['output']}"
+                print(f"Begründung: {validation_result['log']['output']}")
 
         response_data["final_response"] = context
         return response_data
 
-# Agent 1: Synopsis erstellen
-def synopsis_agent(user_input):
-    log = {
-        "agent": "Synopsis Agent",
-        "status": "running",
-        "output": ""
-    }
-    
+    def get_context(self, chat_id):
+        """Abrufen des Kontexts aus der Chroma-Datenbank basierend auf der Chat-ID."""
+        try:
+            results = vectorstore.get()
+            context_data = []
+            for doc, metadata in zip(results['documents'], results['metadatas']):
+                if metadata.get('chat_id') == chat_id:
+                    context_data.append(doc)
+            return "\n".join(context_data)
+        except Exception as e:
+            print(f"Fehler beim Abrufen des Kontexts: {e}")
+            return ""
+
+    def store_context(self, chat_id, user_input, final_output):
+        """Speichern des Benutzerinputs und der validierten finalen Ausgabe in der Chroma-Datenbank."""
+        try:
+            vectorstore.add_texts(
+                texts=[f"User: {user_input}\nAssistant: {final_output}"],
+                metadatas=[{"chat_id": chat_id, "timestamp": datetime.now().isoformat()}]
+            )
+            print(f"Kontext für Chat-ID {chat_id} erfolgreich gespeichert.")
+        except Exception as e:
+            print(f"Fehler beim Speichern des Kontexts: {e}")
+
+# Synopsis-Agent
+def synopsis_agent(user_input, context):
+    log = {"agent": "SynopsisAgent", "status": "running", "details": []}
     try:
-        # Prompt für die Synopsis
-        prompt_template = """
-        Aufgabe: Schreibe eine detailreiche Synopsis des folgenden Textes.
-        Die Synopsis soll alle Kernfragen und Aspekte des Themas ausführlich darstellen.
+        prompt = f"""
+        Kontext:
+        {context}
 
-        Text:
-        {input}
-
-        Ausgabe:
+        Aufgabe: Erstelle eine prägnante Synopsis basierend auf dem folgenden Benutzerinput:
+        {user_input}
         """
-        prompt = prompt_template.format(input=user_input)
+        llm = OllamaLLM()
+        response = llm._call(prompt)
 
-        # Simulierter LLM-Output
-        if "Begründung für Anpassung" in user_input:
-            synopsis = "Angepasste Synopsis: Apple bleibt durch innovative Strategien und Markenbindung erfolgreich."
-        else:
-            synopsis = """
-            Die Analyse stellt fest, dass Apple trotz scheinbarer Nachteile im Vergleich zur Konkurrenz weiterhin erfolgreich bleibt. Der Kern liegt in Apples einzigartigen Marketingstrategien, der starken Markenbindung und dem geschlossenen Ökosystem, das Kunden langfristig bindet.
-            """
-        
-        log["status"] = "completed"
-        log["output"] = synopsis
-        return {"log": log, "output": synopsis}
-        
+        log.update({"status": "completed", "output": response})
+        return {"log": log, "output": response}
     except Exception as e:
-        log["status"] = "failed"
-        log["output"] = str(e)
-        return {"log": log, "output": str(e)}
+        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
+        return {"log": log, "output": f"Fehler: {str(e)}"}
 
-# Validierungs-Agent: Überprüft den Output inhaltlich
-def validation_agent(user_input, output):
-    log_validation = {"agent": "ValidationAgent", "status": "processing"}
+# Validierungs-Agent
+def validation_agent(user_input, output, context):
+    """
+    Validiert den Output anhand des Benutzerinputs und des vorherigen Kontexts.
+    """
+    log = {"agent": "ValidationAgent", "status": "processing", "details": []}
+
     try:
-        # Prüfen, ob der Output relevant ist
-        if len(output.strip()) == 0:
-            log_validation.update({"status": "failed", "output": "Schlecht: Kein Output vorhanden."})
-        elif all(keyword.lower() in output.lower() for keyword in user_input.split()[:5]):
-            log_validation.update({"status": "completed", "output": "Gut: Der Output passt inhaltlich gut zum Input."})
+        # Semantische Übereinstimmung prüfen
+        prompt = f"""
+        Überprüfe die folgende Ausgabe darauf, ob sie inhaltlich mit der Benutzeranfrage und dem Kontext übereinstimmt.
+        
+        Benutzeranfrage:
+        {user_input}
+        
+        Kontext:
+        {context}
+        
+        Ausgabe:
+        {output}
+        
+        Antworte mit:
+        1. "Ja" oder "Nein", ob die Ausgabe inhaltlich korrekt ist.
+        2. Begründung, warum die Ausgabe korrekt oder falsch ist.
+        """
+        llm = OllamaLLM()
+        validation_result = llm._call(prompt)
+
+        # Validierungsergebnis analysieren
+        if "Ja" in validation_result:
+            log.update({
+                "status": "completed",
+                "output": "Validierung erfolgreich. Ausgabe ist inhaltlich korrekt."
+            })
         else:
-            log_validation.update({"status": "failed", "output": "Schlecht: Der Output greift den Input nicht richtig auf."})
+            reason = validation_result.split("Begründung:")[1].strip() if "Begründung:" in validation_result else "Unzureichende Begründung erhalten."
+            log.update({
+                "status": "failed",
+                "output": f"Validierung fehlgeschlagen: {reason}"
+            })
+
     except Exception as e:
-        log_validation.update({"status": "failed", "error": str(e), "output": "Schlecht: Fehler bei der Validierung."})
-    return {"log": log_validation}
+        log.update({
+            "status": "failed",
+            "output": f"Fehler bei der Validierung: {str(e)}"
+        })
+
+    return {"log": log}
 
 # Initialisiere das Agentensystem
 agent_system = AgentSystem()
 agent_system.add_agent(synopsis_agent, kontrolliert=True)
 
-@app.route("/api/generate", methods=["POST"])
+@app.route('/api/generate', methods=['POST'])
 def generate():
     try:
         data = request.get_json()
         user_input = data.get("user_input", "")
-        print(f"Eingehende Anfrage: {data}")
-
-        # Starte die Agentenverarbeitung
-        response_data = agent_system.run_agents(user_input)
-        return jsonify(response_data)
+        chat_id = data.get("chat_id", "default")
+        print(f"Verarbeite Anfrage: user_input='{user_input}', chat_id='{chat_id}'")
+        
+        result = agent_system.run_agents(user_input, chat_id)
+        print(f"Ergebnis: {result}")
+        return jsonify(result)
     except Exception as e:
-        print(f"Fehler bei der Anfrage: {str(e)}")
-        return jsonify({"error": f"Fehler bei der Verarbeitung: {str(e)}"}), 500
+        return jsonify({"error": f"Fehler: {str(e)}"}), 500
+
+# CORS aktivieren
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
