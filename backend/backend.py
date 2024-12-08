@@ -62,30 +62,42 @@ class AgentSystem:
 
     def run_agents(self, user_input, chat_id="default"):
         response_data = {"steps": [], "final_response": ""}
+        validated_synopsis = None
+        validated_chapters = None
         context = self.get_context(chat_id)
 
         for agent in self.agents:
-            while True:
-                result = agent["function"](user_input, context)
+            validated = False
+
+            while not validated:
+                input_data = validated_synopsis if agent["function"].__name__ == "chapter_agent" else context
+                result = agent["function"](user_input, input_data)
                 print(f"Agent: {result['log']['agent']}, Status: {result['log']['status']}, Output: {result['log']['output']}")
                 response_data["steps"].append(result["log"])
-                context = result["output"]
 
-                if not agent["kontrolliert"]:
-                    break
+                if agent["kontrolliert"]:
+                    validation_result = validation_agent(user_input, result["output"], input_data)
+                    response_data["steps"].append(validation_result["log"])
+                    print(f"Validierung: {validation_result['log']['output']}")
 
-                validation_result = validation_agent(user_input, context, context)
-                response_data["steps"].append(validation_result["log"])
-                print(f"Validierung: {validation_result['log']['output']}")
+                    if validation_result["log"]["status"] == "completed":
+                        validated = True
+                        if agent["function"].__name__ == "synopsis_agent":
+                            validated_synopsis = result["output"]
+                        elif agent["function"].__name__ == "chapter_agent":
+                            validated_chapters = result["output"]
+                        self.store_context(chat_id, user_input, result["output"])
+                    else:
+                        print("Validierung fehlgeschlagen. Wiederhole Schritt...")
+                else:
+                    validated = True
 
-                if validation_result["log"]["status"] == "completed":
-                    self.store_context(chat_id, user_input, context)
-                    break
-
-                context += f"\nBegründung für Wiederholung: {validation_result['log']['output']}"
-                print(f"Begründung: {validation_result['log']['output']}")
-
-        response_data["final_response"] = context
+        # Final Response Composition
+        response_data["final_response"] = (
+            f"Synopsis:\n\n{validated_synopsis}\n\nKapitelstruktur:\n\n{validated_chapters}"
+            if validated_chapters
+            else validated_synopsis or context
+        )
         return response_data
 
     def get_context(self, chat_id):
@@ -137,7 +149,7 @@ def validation_agent(user_input, output, context):
     """
     Validiert den Output anhand des Benutzerinputs und des vorherigen Kontexts.
     """
-    log = {"agent": "ValidationAgent", "status": "processing", "details": []}
+    log = {"agent": "ValidationAgent", "status": "processing"}
 
     try:
         # Semantische Übereinstimmung prüfen
@@ -181,9 +193,31 @@ def validation_agent(user_input, output, context):
 
     return {"log": log}
 
+# Chapter-Agent
+def chapter_agent(user_input, validated_synopsis):
+    log = {"agent": "ChapterAgent", "status": "running", "details": []}
+    try:
+        prompt = f"""
+        Basierend auf der validierten Synopsis, erstelle eine logische und strukturierte Liste von Kapiteln:
+
+        Validierte Synopsis:
+        {validated_synopsis}
+
+        Die Kapitel sollten klar benannt und in einer sinnvollen Reihenfolge organisiert sein.
+        """
+        llm = OllamaLLM()
+        response = llm._call(prompt)
+
+        log.update({"status": "completed", "output": response})
+        return {"log": log, "output": response}
+    except Exception as e:
+        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
+        return {"log": log, "output": f"Fehler: {str(e)}"}
+
 # Initialisiere das Agentensystem
 agent_system = AgentSystem()
 agent_system.add_agent(synopsis_agent, kontrolliert=True)
+agent_system.add_agent(chapter_agent, kontrolliert=True)
 
 @app.route('/api/generate', methods=['POST'])
 def generate():

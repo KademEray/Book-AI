@@ -33,20 +33,17 @@ async def main(message: cl.Message):
         data = response.json()
         print(f"Backend-Daten: {data}")
 
-                # Zeige jeden Schritt im Validierungsprozess an
+        # Zeige jeden Schritt im Validierungsprozess an
         for step in data.get("steps", []):
             agent = step.get("agent", "Unbekannt")
             status = step.get("status", "Unbekannt")
             output = step.get("output", "Keine Ausgabe verfügbar")
-            
-            # Nachricht formatieren
             step_message = f"""
             **Agent**: {agent}
             **Status**: {status}
             **Output**: {output}
             """
-            await cl.Message(content=step_message.strip()).send()
-
+            await cl.Message(content=step_message).send()
 
         # Finale Antwort anzeigen
         final_response = data.get("final_response", "Keine finale Antwort verfügbar")
