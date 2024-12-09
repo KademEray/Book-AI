@@ -5,6 +5,7 @@ from langchain_chroma import Chroma
 from langchain.embeddings.base import Embeddings
 import requests
 from datetime import datetime
+import re
 
 # Flask-Setup
 app = Flask(__name__)
@@ -53,6 +54,26 @@ vectorstore = Chroma(
     embedding_function=custom_embedding_function
 )
 
+# Funktion zur Extraktion des Dictionaries
+def extract_dictionary(output, variable_name="X_Dict"):
+    try:
+        # Sucht nach der genauen Struktur des Dictionaries
+        pattern = rf"{variable_name}\s*=\s*\{{.*?\}}"
+        match = re.search(pattern, output, re.DOTALL)
+        if match:
+            extracted_dict = match.group(0)
+            try:
+                # Evaluiere die extrahierte Dictionary-Struktur
+                parsed_dict = eval(extracted_dict.split('=', 1)[1].strip())
+                return parsed_dict
+            except SyntaxError as parse_error:
+                raise ValueError(f"Fehler beim Parsen des Dictionaries: {parse_error}")
+        else:
+            # Debug-Ausgabe, falls kein Treffer
+            raise ValueError(f"'{variable_name}' konnte im Output nicht gefunden werden. Ausgabe: {output}")
+    except Exception as e:
+        raise ValueError(f"Fehler bei der Extraktion des Dictionaries: {e}")
+
 class AgentSystem:
     def __init__(self):
         self.agents = []
@@ -65,13 +86,13 @@ class AgentSystem:
         validated_synopsis = None
         validated_chapters = None
         chapter_dict = None
-        context = self.get_context(chat_id)  # Kontext holen
+        context = self.get_context(chat_id)  # Kontext abrufen
 
         for agent in self.agents:
             validated = False
 
             while not validated:
-                # Unterscheidung der Agentenlogik
+                # Wähle die Eingabedaten basierend auf dem Agententyp
                 if agent["function"].__name__ == "dictionary_agent":
                     input_data = validated_chapters
                 elif agent["function"].__name__ == "chapter_validation_agent":
@@ -81,19 +102,22 @@ class AgentSystem:
                 else:
                     input_data = validated_synopsis if agent["function"].__name__ == "chapter_agent" else context
 
-                # Funktionsaufruf entsprechend anpassen
-                if agent["function"].__name__ == "chapter_agent":
-                    result = agent["function"](user_input, validated_synopsis)
-                elif agent["function"].__name__ == "synopsis_agent":
-                    result = agent["function"](user_input, input_data)  # user_input und Kontext
+                # Agent ausführen (chat_id wird immer übergeben)
+                if agent["function"].__name__ == "synopsis_agent":
+                    result = agent["function"](user_input, input_data, chat_id)
+                elif agent["function"].__name__ == "chapter_agent":
+                    result = agent["function"](user_input, validated_synopsis, chat_id)
+                elif agent["function"].__name__ in ["dictionary_agent", "chapter_validation_agent"]:
+                    result = agent["function"](input_data, chat_id)
                 else:
-                    result = agent["function"](input_data)
+                    result = agent["function"](input_data)  # Fallback, falls kein chat_id benötigt
 
                 print(f"Agent: {result['log']['agent']}, Status: {result['log']['status']}, Output: {result['log']['output']}")
                 response_data["steps"].append(result["log"])
 
+                # Validierungslogik
                 if agent["kontrolliert"]:
-                    validation_result = validation_agent(user_input, result["output"], input_data)
+                    validation_result = validation_agent(user_input, result["output"], chat_id)
                     response_data["steps"].append(validation_result["log"])
                     print(f"Validierung: {validation_result['log']['output']}")
 
@@ -105,6 +129,21 @@ class AgentSystem:
                             validated_chapters = result["output"]
                         elif agent["function"].__name__ == "dictionary_agent":
                             chapter_dict = result["output"]
+
+                            # Wiederholungslogik für Dictionary-Agent
+                            while True:
+                                extracted_dict = extract_dictionary(chapter_dict)
+                                if isinstance(extracted_dict, dict):
+                                    print(f"Validiertes und extrahiertes Dictionary:\n{extracted_dict}")
+                                    break  # Beende die Wiederholung, wenn das Dictionary gültig ist
+                                else:
+                                    print(f"Ungültiges Dictionary extrahiert: {extracted_dict}. Wiederhole den Agenten...")
+                                    result = agent["function"](validated_chapters, chat_id)
+                                    chapter_dict = result["output"]
+                                    validation_result = validation_agent(user_input, chapter_dict, chat_id)
+                                    if validation_result["log"]["status"] != "completed":
+                                        print("Validierung erneut fehlgeschlagen. Wiederhole...")
+
                         self.store_context(chat_id, user_input, result["output"])
                     else:
                         print("Validierung fehlgeschlagen. Wiederhole Schritt...")
@@ -144,7 +183,7 @@ class AgentSystem:
             print(f"Fehler beim Speichern des Kontexts: {e}")
 
 # Synopsis-Agent
-def synopsis_agent(user_input, context):
+def synopsis_agent(user_input, context, chat_id=None):
     log = {"agent": "SynopsisAgent", "status": "running", "details": []}
     try:
         prompt = f"""
@@ -164,26 +203,23 @@ def synopsis_agent(user_input, context):
         return {"log": log, "output": f"Fehler: {str(e)}"}
 
 # Validierungs-Agent
-def validation_agent(user_input, output, context):
-    """
-    Validiert den Output anhand des Benutzerinputs und des vorherigen Kontexts.
-    """
+def validation_agent(user_input, output, chat_id):
     log = {"agent": "ValidationAgent", "status": "processing"}
 
     try:
-        # Semantische Übereinstimmung prüfen
+        context = agent_system.get_context(chat_id)  # Kontext abrufen
         prompt = f"""
         Überprüfe die folgende Ausgabe darauf, ob sie inhaltlich mit der Benutzeranfrage und dem Kontext übereinstimmt.
-        
+
         Benutzeranfrage:
         {user_input}
-        
+
         Kontext:
         {context}
-        
+
         Ausgabe:
         {output}
-        
+
         Antworte mit:
         1. "Ja" oder "Nein", ob die Ausgabe inhaltlich korrekt ist.
         2. Begründung, warum die Ausgabe korrekt oder falsch ist.
@@ -191,7 +227,6 @@ def validation_agent(user_input, output, context):
         llm = OllamaLLM()
         validation_result = llm._call(prompt)
 
-        # Validierungsergebnis analysieren
         if "Ja" in validation_result:
             log.update({
                 "status": "completed",
@@ -203,7 +238,6 @@ def validation_agent(user_input, output, context):
                 "status": "failed",
                 "output": f"Validierung fehlgeschlagen: {reason}"
             })
-
     except Exception as e:
         log.update({
             "status": "failed",
@@ -213,7 +247,7 @@ def validation_agent(user_input, output, context):
     return {"log": log}
 
 # Chapter-Agent
-def chapter_agent(user_input, validated_synopsis):
+def chapter_agent(user_input, validated_synopsis, chat_id=None):
     log = {"agent": "ChapterAgent", "status": "running", "details": []}
     try:
         prompt = f"""
@@ -233,55 +267,99 @@ def chapter_agent(user_input, validated_synopsis):
         log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
         return {"log": log, "output": f"Fehler: {str(e)}"}
 
-def dictionary_agent(chapter_list):
+def dictionary_agent(chapter_list, chat_id):
     log = {"agent": "DictionaryAgent", "status": "running", "details": []}
     try:
+        context = agent_system.get_context(chat_id)  # Kontext abrufen
         prompt = f"""
-        Wandeln Sie die folgende Liste von Kapiteln in ein Python-Dictionary um mit dem Variablennamen X_Dict.
-        Struktur:
+        Kontext:
+        {context}
+
+        Erstellen Sie ein Python-Dictionary mit dem Namen "X_Dict", das die Kapitelstruktur wie folgt repräsentiert:
         - Schlüssel: Kapitelnummer (z.B. 'Kapitel 1')
         - Wert: Kapitelinhalt als Text
 
+        Beispiel:
+        X_Dict = {{
+            'Kapitel 1': 'Einleitung',
+            'Kapitel 2': 'Hauptteil',
+            'Kapitel 3': 'Schluss'
+        }}
+
         Kapitelstruktur:
         {chapter_list}
+
+        Geben Sie ausschließlich den Python-Dictionary zurück, ohne zusätzliche Erklärungen oder Text.
         """
         llm = OllamaLLM()
         response = llm._call(prompt)
-
         log.update({"status": "completed", "output": response})
+        
+        # Kontext speichern
+        agent_system.store_context(chat_id, chapter_list, response)
         return {"log": log, "output": response}
     except Exception as e:
         log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
         return {"log": log, "output": f"Fehler: {str(e)}"}
 
-def chapter_validation_agent(chapter_dict):
+def chapter_validation_agent(chapter_dict, chat_id):
     log = {"agent": "ChapterValidationAgent", "status": "running", "details": []}
     try:
+        # Kontext abrufen
+        context = agent_system.get_context(chat_id)
+        
+        # Präziser Prompt
         prompt = f"""
-        Überprüfen Sie das folgende Python-Dictionary, das eine Kapitelstruktur repräsentiert mit dem Variablennamen X_Dict.
-        Kriterien:
-        - Ist die Reihenfolge der Kapitel logisch?
-        - Sind die Kapitel klar und sinnvoll benannt?
-        - Passen die Inhalte der Kapitel zu den Titeln?
+        Kontext:
+        {context}
 
-        Kapitel-Dictionary:
+        Überprüfen Sie die folgende Kapitelstruktur, die in Form eines Python-Dictionarys vorliegt. Das Dictionary trägt den Namen "X_Dict".
+
+        Kriterien:
+        1. Ist die Reihenfolge der Kapitel logisch aufgebaut?
+        2. Sind die Kapitel klar und prägnant benannt?
+        3. Stimmen die Inhalte der Kapitel mit den Titeln überein?
+        4. Sind alle Kapitel vollständig und enthalten keine Lücken?
+
+        Hier ist das Dictionary:
         {chapter_dict}
 
-        Geben Sie eine Bewertung zurück:
-        - "Ja" oder "Nein", ob die Kapitelstruktur korrekt ist.
-        - Eine kurze Begründung Ihrer Entscheidung.
+        Anforderungen an Ihre Antwort:
+        - Beginnen Sie mit "Ja" oder "Nein", ob die Kapitelstruktur korrekt ist.
+        - Geben Sie eine detaillierte Begründung, falls "Nein".
+        - Falls Korrekturen nötig sind, schlagen Sie eine überarbeitete Kapitelstruktur vor.
         """
+        
+        # LLM-Aufruf
         llm = OllamaLLM()
         response = llm._call(prompt)
-
-        if "Ja" in response:
-            log.update({"status": "completed", "output": "Kapitelstruktur validiert."})
+        
+        # Prüfung der Antwort auf "Ja" oder "Nein"
+        if response.strip().startswith("Ja"):
+            log.update({
+                "status": "completed",
+                "output": "Kapitelstruktur validiert. Keine Änderungen erforderlich."
+            })
+            # Kontext speichern
+            agent_system.store_context(chat_id, chapter_dict, "Kapitelstruktur validiert.")
+        elif response.strip().startswith("Nein"):
+            log.update({
+                "status": "failed",
+                "output": f"Validierung fehlgeschlagen: {response}"
+            })
         else:
-            log.update({"status": "failed", "output": f"Validierung fehlgeschlagen: {response}"})
+            log.update({
+                "status": "failed",
+                "output": f"Unerwartete Antwort vom Modell: {response}"
+            })
 
         return {"log": log, "output": response}
+    
     except Exception as e:
-        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
+        log.update({
+            "status": "failed",
+            "output": f"Fehler: {str(e)}"
+        })
         return {"log": log, "output": f"Fehler: {str(e)}"}
 
 # Initialisiere das Agentensystem

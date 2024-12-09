@@ -10,18 +10,26 @@ def generate_chat_id():
 chat_sessions = {}
 
 # Backend-Aufruf
-def handle_message(user_input, session_id):
+def handle_message(user_input, uploaded_file, session_id):
     if session_id not in chat_sessions:
         chat_sessions[session_id] = generate_chat_id()
 
     chat_id = chat_sessions[session_id]
 
     try:
-        # Backend-Anfrage
-        response = requests.post(
-            "http://localhost:5000/api/generate",
-            json={"user_input": user_input, "chat_id": chat_id}
-        )
+        # Dateiinhalt lesen, falls vorhanden
+        file_content = None
+        if uploaded_file:
+            with open(uploaded_file.name, "r", encoding="utf-8") as file:
+                file_content = file.read()
+
+        # Backend-Anfrage vorbereiten
+        payload = {"user_input": user_input, "chat_id": chat_id}
+        if file_content:
+            payload["file_content"] = file_content
+
+        # Anfrage an das Backend
+        response = requests.post("http://localhost:5000/api/generate", json=payload)
         response.raise_for_status()
 
         # Verarbeite Backend-Antwort
@@ -32,33 +40,37 @@ def handle_message(user_input, session_id):
         ])
         final_response = data.get("final_response", "Keine finale Antwort verfügbar")
 
-        # Kombiniere Schritte und finale Antwort
-        return f"**Schritte:**\n\n{steps}\n\n**Finale Antwort:**\n\n{final_response}"
+        return steps, final_response
 
     except requests.exceptions.RequestException as e:
-        return f"Fehler bei der Verbindung zum Backend: {str(e)}"
+        return f"Fehler bei der Verbindung zum Backend: {str(e)}", ""
     except Exception as e:
-        return f"Unerwarteter Fehler: {str(e)}"
+        return f"Unerwarteter Fehler: {str(e)}", ""
 
 # Gradio-Interface
 with gr.Blocks() as demo:
-    gr.Markdown("## Chat mit dem KI-System")
+    gr.Markdown("## Interaktives Chat- und Dateisystem mit KI")
     with gr.Row():
         with gr.Column():
-            chatbox = gr.Chatbot(label="Chat")
-            user_input = gr.Textbox(placeholder="Ihre Nachricht eingeben...")
+            chatbox = gr.Chatbot(label="Chatverlauf")
+            file_upload = gr.File(label="Datei hochladen (optional)", file_types=[".txt", ".pdf"])
+            user_input = gr.Textbox(label="Ihre Nachricht eingeben...", placeholder="Ihre Nachricht hier eingeben...")
             submit_button = gr.Button("Senden")
             session_id = gr.State(value=str(uuid.uuid4()))
 
-    def chat_interaction(user_input, history, session_id):
-        response = handle_message(user_input, session_id)
-        history.append((user_input, response))
-        return history, ""
+        with gr.Column():
+            steps_output = gr.Textbox(label="Agenten-Schritte", lines=15, interactive=False)
+            final_output = gr.Textbox(label="Finale Antwort", lines=5, interactive=False)
+
+    def chat_interaction(user_input, uploaded_file, history, session_id):
+        steps, final_response = handle_message(user_input, uploaded_file, session_id)
+        history.append((user_input, final_response))
+        return history, steps, final_response, None
 
     submit_button.click(
         chat_interaction,
-        inputs=[user_input, chatbox, session_id],
-        outputs=[chatbox, user_input]
+        inputs=[user_input, file_upload, chatbox, session_id],
+        outputs=[chatbox, steps_output, final_output, user_input]
     )
 
 # Starte die Gradio-Anwendung
