@@ -64,14 +64,31 @@ class AgentSystem:
         response_data = {"steps": [], "final_response": ""}
         validated_synopsis = None
         validated_chapters = None
-        context = self.get_context(chat_id)
+        chapter_dict = None
+        context = self.get_context(chat_id)  # Kontext holen
 
         for agent in self.agents:
             validated = False
 
             while not validated:
-                input_data = validated_synopsis if agent["function"].__name__ == "chapter_agent" else context
-                result = agent["function"](user_input, input_data)
+                # Unterscheidung der Agentenlogik
+                if agent["function"].__name__ == "dictionary_agent":
+                    input_data = validated_chapters
+                elif agent["function"].__name__ == "chapter_validation_agent":
+                    input_data = chapter_dict
+                elif agent["function"].__name__ == "synopsis_agent":
+                    input_data = context  # Kontext für synopsis_agent
+                else:
+                    input_data = validated_synopsis if agent["function"].__name__ == "chapter_agent" else context
+
+                # Funktionsaufruf entsprechend anpassen
+                if agent["function"].__name__ == "chapter_agent":
+                    result = agent["function"](user_input, validated_synopsis)
+                elif agent["function"].__name__ == "synopsis_agent":
+                    result = agent["function"](user_input, input_data)  # user_input und Kontext
+                else:
+                    result = agent["function"](input_data)
+
                 print(f"Agent: {result['log']['agent']}, Status: {result['log']['status']}, Output: {result['log']['output']}")
                 response_data["steps"].append(result["log"])
 
@@ -86,6 +103,8 @@ class AgentSystem:
                             validated_synopsis = result["output"]
                         elif agent["function"].__name__ == "chapter_agent":
                             validated_chapters = result["output"]
+                        elif agent["function"].__name__ == "dictionary_agent":
+                            chapter_dict = result["output"]
                         self.store_context(chat_id, user_input, result["output"])
                     else:
                         print("Validierung fehlgeschlagen. Wiederhole Schritt...")
@@ -94,8 +113,8 @@ class AgentSystem:
 
         # Final Response Composition
         response_data["final_response"] = (
-            f"Synopsis:\n\n{validated_synopsis}\n\nKapitelstruktur:\n\n{validated_chapters}"
-            if validated_chapters
+            f"Synopsis:\n\n{validated_synopsis}\n\nKapitelstruktur (Dictionary):\n\n{chapter_dict}"
+            if chapter_dict
             else validated_synopsis or context
         )
         return response_data
@@ -214,10 +233,64 @@ def chapter_agent(user_input, validated_synopsis):
         log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
         return {"log": log, "output": f"Fehler: {str(e)}"}
 
+def dictionary_agent(chapter_list):
+    log = {"agent": "DictionaryAgent", "status": "running", "details": []}
+    try:
+        prompt = f"""
+        Wandeln Sie die folgende Liste von Kapiteln in ein Python-Dictionary um mit dem Variablennamen X_Dict.
+        Struktur:
+        - Schlüssel: Kapitelnummer (z.B. 'Kapitel 1')
+        - Wert: Kapitelinhalt als Text
+
+        Kapitelstruktur:
+        {chapter_list}
+        """
+        llm = OllamaLLM()
+        response = llm._call(prompt)
+
+        log.update({"status": "completed", "output": response})
+        return {"log": log, "output": response}
+    except Exception as e:
+        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
+        return {"log": log, "output": f"Fehler: {str(e)}"}
+
+def chapter_validation_agent(chapter_dict):
+    log = {"agent": "ChapterValidationAgent", "status": "running", "details": []}
+    try:
+        prompt = f"""
+        Überprüfen Sie das folgende Python-Dictionary, das eine Kapitelstruktur repräsentiert mit dem Variablennamen X_Dict.
+        Kriterien:
+        - Ist die Reihenfolge der Kapitel logisch?
+        - Sind die Kapitel klar und sinnvoll benannt?
+        - Passen die Inhalte der Kapitel zu den Titeln?
+
+        Kapitel-Dictionary:
+        {chapter_dict}
+
+        Geben Sie eine Bewertung zurück:
+        - "Ja" oder "Nein", ob die Kapitelstruktur korrekt ist.
+        - Eine kurze Begründung Ihrer Entscheidung.
+        """
+        llm = OllamaLLM()
+        response = llm._call(prompt)
+
+        if "Ja" in response:
+            log.update({"status": "completed", "output": "Kapitelstruktur validiert."})
+        else:
+            log.update({"status": "failed", "output": f"Validierung fehlgeschlagen: {response}"})
+
+        return {"log": log, "output": response}
+    except Exception as e:
+        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
+        return {"log": log, "output": f"Fehler: {str(e)}"}
+
 # Initialisiere das Agentensystem
 agent_system = AgentSystem()
 agent_system.add_agent(synopsis_agent, kontrolliert=True)
 agent_system.add_agent(chapter_agent, kontrolliert=True)
+agent_system.add_agent(dictionary_agent, kontrolliert=True)
+agent_system.add_agent(chapter_validation_agent, kontrolliert=True)
+
 
 @app.route('/api/generate', methods=['POST'])
 def generate():
@@ -225,13 +298,15 @@ def generate():
         data = request.get_json()
         user_input = data.get("user_input", "")
         chat_id = data.get("chat_id", "default")
-        print(f"Verarbeite Anfrage: user_input='{user_input}', chat_id='{chat_id}'")
+        print(f"Received request: user_input={user_input}, chat_id={chat_id}")
         
         result = agent_system.run_agents(user_input, chat_id)
-        print(f"Ergebnis: {result}")
+        print(f"Result: {result}")
         return jsonify(result)
     except Exception as e:
+        print(f"Error during request processing: {e}")
         return jsonify({"error": f"Fehler: {str(e)}"}), 500
+
 
 # CORS aktivieren
 @app.after_request
