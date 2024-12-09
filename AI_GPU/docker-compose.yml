@@ -3,7 +3,7 @@ version: '3.8'
 services:
   ollama:
     build:
-      context: ./AI
+      context: ./
       dockerfile: Dockerfile
     volumes:
       - ollama:/root/.ollama

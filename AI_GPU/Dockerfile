@@ -1,5 +1,5 @@
-# Basis-Image: NVIDIA CUDA mit breiter Unterstützung
-FROM nvidia/cuda:12.0.1-base-ubuntu22.04
+# Basis-Image mit breiter CUDA-Unterstützung
+FROM nvidia/cuda:11.8.0-base-ubuntu20.04
 
 # Arbeitsverzeichnis setzen
 WORKDIR /app
@@ -15,13 +15,15 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# NVIDIA-Umgebungsvariablen setzen
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
 # Ollama installieren
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
-# Umgebungsvariable setzen
+# Umgebungsvariable für Ollama setzen
 ENV OLLAMA_HOST=0.0.0.0:11434
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 # Port 11434 exposen
 EXPOSE 11434
