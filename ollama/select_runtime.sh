@@ -47,10 +47,10 @@ start_ollama() {
     done
     
     log "Ollama server is ready. Pulling model llama3.2:3b..."
-    ollama pull llama3.2:3b
+    ollama pull llama3.2:1b
     
     if [ $? -eq 0 ]; then
-        log "Model llama3.2:3b successfully pulled"
+        log "Model llama3.2:1b successfully pulled"
         log "Ollama is now ready to use"
     else
         log "Error pulling model llama3.2:3b"

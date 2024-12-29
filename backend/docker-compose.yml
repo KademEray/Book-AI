@@ -1,12 +1,12 @@
 version: "3.8"
 
 services:
-  gradio-chat-app:
+  backend:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "5000:5000"
     environment:
-      - PYTHONUNBUFFERED=1  # Direktes Loggen in Docker
+      - PYTHONUNBUFFERED=1
     restart: unless-stopped

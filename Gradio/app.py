@@ -29,7 +29,7 @@ def handle_message(user_input, uploaded_file, session_id):
             payload["file_content"] = file_content
 
         # Anfrage an das Backend
-        response = requests.post("http://localhost:5000/api/generate", json=payload)
+        response = requests.post("http://backend:5000/api/generate", json=payload)
         response.raise_for_status()
 
         # Verarbeite Backend-Antwort
@@ -52,7 +52,7 @@ with gr.Blocks() as demo:
     gr.Markdown("## Interaktives Chat- und Dateisystem mit KI")
     with gr.Row():
         with gr.Column():
-            chatbox = gr.Chatbot(label="Chatverlauf")
+            chatbox = gr.Chatbot(label="Chatverlauf", type='messages')
             file_upload = gr.File(label="Datei hochladen (optional)", file_types=[".txt", ".pdf"])
             user_input = gr.Textbox(label="Ihre Nachricht eingeben...", placeholder="Ihre Nachricht hier eingeben...")
             submit_button = gr.Button("Senden")
@@ -64,7 +64,9 @@ with gr.Blocks() as demo:
 
     def chat_interaction(user_input, uploaded_file, history, session_id):
         steps, final_response = handle_message(user_input, uploaded_file, session_id)
-        history.append((user_input, final_response))
+        # Aktualisiere die Historie im korrekten Format
+        history.append({"role": "user", "content": user_input})
+        history.append({"role": "assistant", "content": final_response})
         return history, steps, final_response, None
 
     submit_button.click(
@@ -74,4 +76,4 @@ with gr.Blocks() as demo:
     )
 
 # Starte die Gradio-Anwendung
-demo.launch(server_name="0.0.0.0", server_port=7860)
+demo.launch(server_name="0.0.0.0", server_port=3000, debug=True)

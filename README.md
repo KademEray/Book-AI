@@ -15,14 +15,8 @@ docker compose up -d
 
 2.
 ```bash
-cd chainlit
-chainlit run app.py
-```
-
-2.
-```bash
-cd gradio
-python app.py
+cd Gradio
+docker-compose up
 ```
 oder auf die gradio/app.py Datei und dann run drücken
 
