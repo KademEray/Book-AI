@@ -1,5 +1,0 @@
-Flask
-requests
-scikit-learn
-langchain
-langchain_chroma
