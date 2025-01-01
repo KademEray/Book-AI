@@ -1,10 +1,7 @@
 from flask import Flask, request, jsonify
 import json
-from sklearn.feature_extraction.text import HashingVectorizer
 import chromadb
 from chromadb import PersistentClient
-from chromadb.config import Settings
-from langchain.embeddings.base import Embeddings
 import requests
 from datetime import datetime
 import re
