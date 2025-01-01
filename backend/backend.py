@@ -55,52 +55,6 @@ class OllamaLLM:
         except requests.exceptions.RequestException as e:
             return f"Fehler bei der Verbindung zu LM Studio: {str(e)}"
         
-# Benutzerdefinierte Embedding-Funktion
-class CustomEmbeddingFunction:
-    def __init__(self, n_features=128):
-        logger.info(f"Initializing HashingVectorizer with {n_features} features.")
-        self.vectorizer = HashingVectorizer(n_features=n_features, norm=None, alternate_sign=False)
-        self.dimension = n_features
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        try:
-            embeddings = self.vectorizer.transform(texts).toarray()
-            return embeddings.tolist()
-        except Exception as e:
-            logger.error(f"Fehler bei der Batch-Embedding-Berechnung: {e}")
-            return [[0.0] * self.dimension] * len(texts)
-
-    def embed_query(self, text: str) -> list[float]:
-        try:
-            embedding = self.vectorizer.transform([text]).toarray()[0]
-            return embedding.tolist()
-        except Exception as e:
-            logger.error(f"Fehler bei der Query-Embedding-Berechnung: {e}")
-            return [0.0] * self.dimension
-
-# Instanziiere die Embedding-Funktion und Chroma
-custom_embedding_function = CustomEmbeddingFunction(n_features=128)
-
-# Funktion zur Extraktion des Dictionaries
-def extract_dictionary(output, variable_name="X_Dict"):
-    try:
-        # Sucht nach der genauen Struktur des Dictionaries
-        pattern = rf"{variable_name}\s*=\s*\{{.*?\}}"
-        match = re.search(pattern, output, re.DOTALL)
-        if match:
-            extracted_dict = match.group(0)
-            try:
-                # Evaluiere die extrahierte Dictionary-Struktur
-                parsed_dict = eval(extracted_dict.split('=', 1)[1].strip())
-                return parsed_dict
-            except SyntaxError as parse_error:
-                raise ValueError(f"Fehler beim Parsen des Dictionaries: {parse_error}")
-        else:
-            # Debug-Ausgabe, falls kein Treffer
-            raise ValueError(f"'{variable_name}' konnte im Output nicht gefunden werden. Ausgabe: {output}")
-    except Exception as e:
-        raise ValueError(f"Fehler bei der Extraktion des Dictionaries: {e}")
-
 class AgentSystem:
     def __init__(self):
         self.agents = []
@@ -114,10 +68,10 @@ class AgentSystem:
         response_data = {"steps": [], "final_response": ""}
         context = self.get_context()
 
-        # Speichere den initialen Benutzerinput im Kontext
-        self.store_context("User Input", user_input)
+        # Schritt 1: Speichere den initialen Benutzerinput
+        user_input_id = self.store_context("User Input", user_input)
 
-        # Schritt 1: Synopsis-Agent
+        # Schritt 2: Synopsis-Agent
         validated_synopsis = None
         while not validated_synopsis:
             logger.debug("Starting synopsis_agent...")
@@ -127,15 +81,16 @@ class AgentSystem:
 
             if synopsis_result["log"]["status"] == "completed":
                 validated_synopsis = synopsis_result["output"]
-                self.store_context("Synopsis", validated_synopsis)  # Speichern nach Erfolg
+                # Speichere die validierte Synopsis
+                synopsis_id = self.store_context("Synopsis", validated_synopsis)
             else:
                 logger.error("Fehler beim Erstellen der Synopsis. Wiederhole...")
 
-        # Schritt 2: Kapitelstruktur-Agent
+        # Schritt 3: Kapitelstruktur-Agent
         validated_chapters = None
         while not validated_chapters:
             logger.debug("Starting chapter_agent...")
-            chapter_result = chapter_agent(user_input, validated_synopsis)
+            chapter_result = chapter_agent()  # Keine Argumente übergeben
             logger.debug(f"chapter_agent result: {chapter_result}")
             response_data["steps"].append(chapter_result["log"])
 
@@ -145,13 +100,14 @@ class AgentSystem:
 
                 if validation_result["log"]["status"] == "completed":
                     validated_chapters = chapter_result["output"]
-                    self.store_context("Chapters", validated_chapters)  # Speichern nach Erfolg
+                    # Speichere die validierten Kapitel im Kontext (kein Rückgabewert erforderlich)
+                    self.store_context("Chapters", validated_chapters)
                 else:
                     logger.error("Kapitelvalidierung fehlgeschlagen. Wiederhole...")
             else:
                 logger.error("chapter_agent did not complete, retrying...")
 
-        # Schritt 3: Schreiben der Kapitel
+        # Schritt 4: Schreiben der Kapitel
         final_text = None
         while not final_text:
             logger.debug("Starting writing_agent...")
@@ -161,7 +117,8 @@ class AgentSystem:
 
             if writing_result["log"]["status"] == "completed":
                 final_text = writing_result["output"]
-                self.store_context("Final Text", final_text)  # Speichern nach Erfolg
+                # Speichere die Ergebnisse des Schreib-Agenten
+                final_text_id = self.store_context("Final Text", final_text)
             else:
                 logger.error("Writing failed, retrying...")
 
@@ -170,52 +127,58 @@ class AgentSystem:
         logger.debug(f"All agents completed. Returning response_data: {response_data}")
         return response_data
 
-    def get_context(self):
-        """Ruft den gespeicherten Kontext aus ChromaDB ab."""
+
+    def get_next_document_id(self):
+        """Ermittelt die nächste ID basierend auf der Anzahl der gespeicherten Dokumente."""
         try:
-            logger.debug(f"Abfrage von ChromaDB mit session_id: {self.session_id}")
-            results = vectorstore.get(where={"metadata.session_id": {"$eq": self.session_id}})
-            logger.debug(f"Ergebnis von ChromaDB: {results}")
-
-            # Überprüfen, ob Daten vorhanden sind
-            context_data = results.get("documents", [])
-            if not context_data:
-                logger.warning(f"Kein Kontext gefunden für session_id: {self.session_id}.")
-                logger.debug(f"Verfügbare IDs: {results.get('ids', [])}")
-                
-                # Validierung der gespeicherten Daten
-                self.validate_saved_data()
-                
-                return "Standardkontext: Keine vorherigen Daten gefunden."
-
-            logger.info(f"Kontext erfolgreich abgerufen: {len(context_data)} Dokument(e) gefunden.")
-            return "\n".join(context_data)
+            all_data = vectorstore.get()  # Alle Daten abrufen
+            existing_ids = all_data.get("ids", [])
+            return str(len(existing_ids) + 1)
         except Exception as e:
-            logger.error(f"Fehler beim Abrufen des Kontexts: {e}")
-            return "Standardkontext: Keine vorherigen Daten gefunden."
+            logger.error(f"Fehler beim Abrufen der nächsten ID: {e}")
+            return "1"  # Fallback auf ID "1", falls ein Fehler auftritt
 
     def store_context(self, label, data):
-        """Speichert den Kontext in ChromaDB."""
+        """Speichert den Kontext in ChromaDB mit einer fortlaufenden ID."""
         try:
-            metadata = {"session_id": self.session_id, "timestamp": datetime.now().isoformat()}
-            logger.info(f"Speichere Kontext: {label} -> {data[:100]}")  # Nur die ersten 100 Zeichen loggen
-            logger.debug(f"Speichere mit Metadaten: {metadata}")
-            
-            collections = client.list_collections()
-            print("Verfügbare Collections:", collections)
+            doc_id = self.get_next_document_id()  # Zugriff auf die Instanzmethode
+            metadata = {"timestamp": datetime.now().isoformat()}
+            logger.info(f"Speichere Kontext: {label} -> {data} (ID: {doc_id})")  # Nur die ersten 100 Zeichen loggen
 
-            collection = client.get_or_create_collection("conversation_context")
-            all_data = collection.get()
-            print("Gespeicherte Daten:", all_data)
-
-            collection.add(
+            # Dokument speichern
+            vectorstore.upsert(
                 documents=[f"{label}: {data}"],
-                metadatas=[metadata],
-                ids=[str(uuid.uuid4())]
+                ids=[doc_id],
+                metadatas=[metadata]
             )
             logger.debug("Speichern erfolgreich.")
         except Exception as e:
             logger.error(f"Fehler beim Speichern des Kontexts: {e}")
+
+    def get_context(self):
+        """Ruft den gespeicherten Kontext aus ChromaDB ab."""
+        try:
+            logger.debug("Abfrage aller Dokumente aus der Collection.")
+            results = vectorstore.get()  # Alle Dokumente abrufen
+            documents = results.get("documents", [])
+            logger.info(f"Kontext erfolgreich abgerufen: {len(documents)} Dokument(e) gefunden.")
+            return "\n".join(documents)
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen des Kontexts: {e}")
+            return "Standardkontext: Keine vorherigen Daten gefunden."
+
+    def get_context_all(self):
+        try:
+            results = vectorstore.get()  # Alle Daten aus der Collection abrufen
+            documents = results.get("documents", [])
+            if not documents:
+                logger.warning("Keine gespeicherten Dokumente gefunden.")
+                return "Keine gespeicherten Dokumente verfügbar."
+            logger.info(f"{len(documents)} Dokument(e) erfolgreich abgerufen.")
+            return "\n".join(documents)
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen aller Dokumente: {e}")
+            return "Standardkontext: Keine Dokumente gefunden."
 
     def validate_saved_data(self):
         """Validiert, ob gespeicherte Daten direkt abrufbar sind."""
@@ -304,20 +267,32 @@ def validation_agent(user_input, output):
 
     return {"log": log}
 
-def chapter_agent(user_input, validated_synopsis):
+def chapter_agent():
     log = {"agent": "ChapterAgent", "status": "running", "details": []}
     try:
+        # Kontext aus allen Dokumenten abrufen
+        context = agent_system.get_context_all()
+        if not context:
+            raise ValueError("Kein Kontext verfügbar.")
+
         # Präziser Prompt zur Generierung der Kapitelliste
         prompt = f"""
-        Basierend auf der Synopsis, erstelle eine Liste von Kapiteln für eine Masterarbeit.
+        Basierend auf den folgenden gespeicherten Dokumenten, erstelle eine Liste von Kapiteln für den Dokument.
 
         Anforderungen:
-        - Kapitelüberschriften müssen präzise und logisch strukturiert sein.
-        - Vermeide Widersprüche zwischen den Kapiteln.
-        - Gib nur die Kapitelüberschriften in der Reihenfolge zurück.
+        1. Jede Kapitelüberschrift muss mit "Kapitel X: " beginnen, wobei X die fortlaufende Nummer des Kapitels ist.
+        2. Die Kapitelüberschriften müssen klar und prägnant sein, das Thema präzise beschreiben und dürfen keine weiteren Inhalte enthalten.
+        3. Die Reihenfolge der Kapitel muss logisch strukturiert sein, sodass die Themen nahtlos ineinandergreifen.
+        4. Vermeide inhaltliche Widersprüche oder Redundanzen zwischen den Kapiteln.
+        5. Gib nur die Kapitelüberschriften zurück, ohne zusätzliche Erklärungen, Kommentare oder Formatierungen.
 
-        Synopsis:
-        {validated_synopsis}
+        Format der Ausgabe:
+        Kapitel 1: Titel des ersten Kapitels
+        Kapitel 2: Titel des zweiten Kapitels
+        ...
+
+        Gespeicherte Dokumente:
+        {context}
         """
         llm = OllamaLLM()
         response = llm._call(prompt).strip()
@@ -338,10 +313,36 @@ def chapter_agent(user_input, validated_synopsis):
         log["details"].append(validation_result["log"])
 
         if validation_result["log"]["status"] == "completed":
+            # Wenn die Validierung erfolgreich war, gib die validierten Kapitel zurück
             log.update({"status": "completed", "output": chapter_dict})
             return {"log": log, "output": chapter_dict}
         else:
-            raise ValueError("Validation of chapter structure failed.")
+            # Wenn die Validierung fehlschlägt, erneut versuchen
+            corrections = validation_result["log"]["output"].get("corrections", None)
+            invalid_chapter_dict = validation_result["log"]["output"].get("reason", chapter_dict)
+
+            if corrections:
+                logger.warning(f"Validation failed. Reattempting with corrections: {corrections}")
+                corrected_prompt = f"""
+                Hier sind die ursprünglichen Kapitel, die überarbeitet werden sollen:
+                {invalid_chapter_dict}
+
+                Bitte überarbeite sie basierend auf den folgenden Vorschlägen:
+                {corrections}
+                """
+                corrected_response = llm._call(corrected_prompt).strip()
+                corrected_chapter_list = extract_chapter_list(corrected_response)
+
+                if not validate_chapter_structure(corrected_chapter_list):
+                    raise ValueError("Die korrigierte Kapitelstruktur ist ungültig.")
+
+                corrected_chapter_dict = build_chapter_dictionary(corrected_chapter_list)
+                log.update({"status": "completed", "output": corrected_chapter_dict})
+                return {"log": log, "output": corrected_chapter_dict}
+
+            else:
+                log.update({"status": "failed", "output": invalid_chapter_dict})
+                return {"log": log, "output": f"Validierung fehlgeschlagen: {invalid_chapter_dict}"}
 
     except Exception as e:
         log.update({"status": "failed", "output": f"Error: {str(e)}"})
@@ -371,6 +372,26 @@ def extract_chapter_list(response):
     except Exception as e:
         raise ValueError(f"Fehler bei der Extraktion der Kapitel-Liste: {str(e)}")
 
+# Validierungslogik für Kapitelinhalte
+def validate_chapter_content(chapters):
+    issues = []
+    for chapter in chapters:
+        title = chapter["Title"]
+        content = chapter["Content"]
+
+        if not content.startswith(title.split(": ")[1]):
+            issues.append({
+                "Chapter": chapter["Number"],
+                "Issue": "Content does not clearly align with the title",
+                "Suggested Action": "Revise content to align with the chapter title"
+            })
+        if "allgemein" in content or "Beispiel" in content:
+            issues.append({
+                "Chapter": chapter["Number"],
+                "Issue": "Content appears too general or incomplete",
+                "Suggested Action": "Expand and specify content to align with the chapter theme"
+            })
+    return issues
 
 def validate_chapter_structure(chapter_list):
     try:
@@ -427,7 +448,7 @@ def chapter_validation_agent(chapter_dict, **kwargs):
         Kontext:
         {context}
 
-        Überprüfen Sie die folgende Kapitelstruktur auf inhaltliche Korrektheit und Konsistenz.
+        Überprüfen Sie die folgende Kapitelstruktur und Inhalte auf Korrektheit, Konsistenz und Präzision.
 
         Kapitelstruktur:
         {chapters_text}
@@ -436,21 +457,22 @@ def chapter_validation_agent(chapter_dict, **kwargs):
         1. Alle Kapitel müssen sinnvolle und logische Titel haben.
         2. Die Inhalte müssen inhaltlich konsistent sein und keine Widersprüche enthalten.
         3. Die Kapitel sollten logisch aufeinander aufbauen und thematisch kohärent sein.
+        4. Kapitelinhalte müssen klar mit den Titeln übereinstimmen und dürfen nicht zu allgemein oder unvollständig sein.
 
-        Antworten Sie am Anfang des Satzes mit:
-        - "Ja", wenn die Kapitelstruktur inhaltlich korrekt und konsistent ist.
-        - "Nein", gefolgt von einer detaillierten Begründung und Korrekturvorschlägen, falls die Inhalte angepasst werden müssen.
+        Antworten Sie mit:
+        - "Ja" am Anfang, wenn die Kapitelstruktur und Inhalte korrekt sind, gefolgt von einer kurzen Begründung.
+        - "Nein" am Anfang, gefolgt von einer detaillierten Begründung und Korrekturvorschlägen, falls die Inhalte angepasst werden müssen.
         """
-        # LLM-Aufruf
         llm = OllamaLLM()
         response = llm._call(prompt).strip()
+        logger.debug(f"LLM response: {response}")
 
         # Prüfung der Antwort
         if response.startswith("Ja"):
             log.update({
                 "status": "completed",
                 "output": chapter_dict,  # Originaldaten zurückgeben
-                "details": ["Kapitelstruktur ist inhaltlich korrekt."]
+                "details": ["Kapitelstruktur und Inhalte sind inhaltlich korrekt."]
             })
             agent_system.store_context(chapters_text, "Kapitelstruktur inhaltlich validiert.")
             return {"log": log}
@@ -458,17 +480,24 @@ def chapter_validation_agent(chapter_dict, **kwargs):
         elif response.startswith("Nein"):
             reason = response.split("Begründung:", 1)[-1].strip() if "Begründung:" in response else "Keine Begründung erhalten."
             corrections = response.split("Korrekturvorschläge:", 1)[-1].strip() if "Korrekturvorschläge:" in response else "Keine Korrekturvorschläge erhalten."
+
+            # Zusätzliche Validierung der Inhalte
+            content_issues = validate_chapter_content(chapter_dict["Chapters"])
+            if content_issues:
+                corrections += f"\nZusätzliche Validierungsprobleme: {json.dumps(content_issues, indent=2)}"
+
             log.update({
                 "status": "failed",
                 "output": {
                     "reason": reason,
                     "corrections": corrections
                 },
-                "details": ["Kapitelstruktur ist inhaltlich fehlerhaft."]
+                "details": ["Kapitelstruktur oder Inhalte sind fehlerhaft."]
             })
             return {"log": log}
 
         else:
+            # Unbekannte Antwort behandeln
             raise ValueError(f"Unbekannte Antwort vom LLM: {response}")
 
     except ValueError as e:
