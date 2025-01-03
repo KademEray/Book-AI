@@ -60,8 +60,8 @@ class AgentSystem:
     def add_agent(self, agent_function, kontrolliert=False):
         self.agents.append({"function": agent_function, "kontrolliert": kontrolliert})
 
-    def run_agents(self, user_input):
-        logger.debug(f"run_agents called with user_input: {user_input}")
+    def run_agents(self, user_input, min_chapter=0, min_subchapter=0):
+        logger.debug(f"run_agents called with user_input: {user_input}, min_chapter: {min_chapter}")
         response_data = {"steps": [], "final_response": ""}
         context = self.get_context()
 
@@ -87,7 +87,7 @@ class AgentSystem:
         validated_chapters = None
         while not validated_chapters:
             logger.debug("Starting chapter_agent...")
-            chapter_result = chapter_agent()  # Keine Argumente übergeben
+            chapter_result = chapter_agent(min_chapter=min_chapter, min_subchapter=min_subchapter)  # min_chapter übergeben
             logger.debug(f"chapter_agent result: {chapter_result}")
             response_data["steps"].append(chapter_result["log"])
 
@@ -97,7 +97,7 @@ class AgentSystem:
 
                 if validation_result["log"]["status"] == "completed":
                     validated_chapters = chapter_result["output"]
-                    # Speichere die validierten Kapitel im Kontext (kein Rückgabewert erforderlich)
+                    # Speichere die validierten Kapitel im Kontext
                     self.store_context("Chapters", validated_chapters)
                 else:
                     logger.error("Kapitelvalidierung fehlgeschlagen. Wiederhole...")
@@ -264,7 +264,7 @@ def validation_agent(user_input, output):
 
     return {"log": log}
 
-def chapter_agent():
+def chapter_agent(min_chapter=0, min_subchapter=0):
     log = {"agent": "ChapterAgent", "status": "running", "details": []}
     try:
         logger.debug("Rufe alle gespeicherten Kontexte ab...")
@@ -288,6 +288,7 @@ def chapter_agent():
             3. Die Reihenfolge der Kapitel muss logisch strukturiert sein, sodass die Themen nahtlos ineinandergreifen.
             4. Vermeide inhaltliche Widersprüche oder Redundanzen zwischen den Kapiteln.
             5. Gib nur die Kapitelüberschriften zurück, ohne zusätzliche Erklärungen, Kommentare oder Formatierungen.
+            6. Erstelle mindestens {min_chapter} Kapitel.
 
             Format der Ausgabe:
             Kapitel 1: Titel des ersten Kapitels
@@ -309,8 +310,13 @@ def chapter_agent():
                 logger.error("Kapitelstruktur ungültig. Wiederhole Generierung...")
                 iteration += 1
                 continue
-            
-            print(f"Zeile 313:\n{chapter_list}")
+
+            # Überprüfe, ob die Mindestanzahl an Kapiteln erfüllt ist
+            if len(chapter_list) < min_chapter:
+                logger.warning(f"Generierte Kapitel ({len(chapter_list)}) sind weniger als die Mindestanzahl ({min_chapter}). Wiederhole...")
+                iteration += 1
+                continue
+
             chapter_dict = build_chapter_dictionary(chapter_list)
             logger.debug(f"Generiertes Kapitel-Dictionary:\n{chapter_dict}")
 
@@ -340,14 +346,13 @@ def chapter_agent():
                     corrected_response = llm._call(corrected_prompt).strip()
                     logger.debug(f"LLM-Antwort zur Kapitelkorrektur:\n{corrected_response}")
                     chapter_list = extract_chapter_list(corrected_response)
-                    print(f"Zeile 344:\n{chapter_list}")
                     chapter_dict = build_chapter_dictionary(chapter_list)
 
             iteration += 1
 
         for chapter in chapters:
             logger.info(f"Generiere Unterkapitel für Kapitel {chapter['Number']}: {chapter['Title']}")
-            subchapter_result = subchapter_agent(chapter)
+            subchapter_result = subchapter_agent(chapter, min_subchapter)
             logger.debug(f"Ergebnis der Unterkapitelgenerierung für Kapitel {chapter['Title']}:\n{subchapter_result}")
 
             if subchapter_result["log"]["status"] == "completed":
@@ -368,7 +373,7 @@ def chapter_agent():
         logger.error(f"Fehler im chapter_agent: {e}")
         return {"log": log, "output": f"Error: {str(e)}"}
 
-def subchapter_agent(current_chapter):
+def subchapter_agent(current_chapter, min_subchapter):
     log = {"agent": "SubchapterAgent", "status": "running", "details": []}
     try:
         subchapter_validated = False
@@ -386,6 +391,7 @@ def subchapter_agent(current_chapter):
             2. Die Unterkapitel müssen prägnante Titel haben, die das Thema des Kapitels weiter gliedern.
             3. Vermeide inhaltliche Wiederholungen oder widersprüchliche Titel.
             4. Gib nur die Unterkapitelüberschriften zurück, ohne zusätzliche Erklärungen, Kommentare oder Formatierungen.
+            5. Erstelle mindestens {min_subchapter} Unterkapitel.
 
             Format der Ausgabe:
             Subchapter {chapter_number}.1: Titel des ersten Unterkapitels
@@ -411,6 +417,11 @@ def subchapter_agent(current_chapter):
             except ValueError as ve:
                 logger.error(f"Fehler bei der Extraktion der Unterkapitel für Kapitel '{chapter_title}': {ve}")
                 raise
+
+            # Überprüfen, ob die Mindestanzahl an Unterkapiteln erreicht wurde
+            if len(subchapter_list) < min_subchapter:
+                logger.warning(f"Generierte Unterkapitel ({len(subchapter_list)}) sind weniger als die Mindestanzahl ({min_subchapter}). Wiederhole...")
+                continue
 
             if validate_chapter_structure(subchapter_list, is_subchapter=True):
                 logger.info(f"Unterkapitel für Kapitel '{chapter_title}' erfolgreich validiert.")
@@ -810,9 +821,12 @@ def generate():
     try:
         data = request.get_json()
         user_input = data.get("user_input", "")
-        logger.info(f"Received request: user_input={user_input}")
+        min_chapter = data.get("min_chapter", 0)  # min_chapter erfassen
+        min_subchapter = data.get("min_subchapter", 0)  # min_subchapter erfassen
+        logger.info(f"Received request: user_input={user_input}, min_chapter={min_chapter}")
         
-        result = agent_system.run_agents(user_input)
+        # min_chapter an run_agents übergeben
+        result = agent_system.run_agents(user_input, min_chapter=min_chapter, min_subchapter=min_subchapter)
         if not result or "final_response" not in result:
             raise ValueError("Die Antwortstruktur ist unvollständig.")
         
