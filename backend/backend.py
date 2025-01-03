@@ -44,7 +44,7 @@ class OllamaLLM:
                     "max_tokens": -1,  # Keine Begrenzung der Tokens
                     "stream": False  # Setze auf False, wenn die gesamte Antwort abgewartet werden soll
                 },
-                timeout=180  # Timeout in Sekunden
+                timeout=800  # Timeout in Sekunden
             )
             response.raise_for_status()  # Überprüft auf HTTP-Fehler
             # Extrahiere die Antwort aus der JSON-Antwort
