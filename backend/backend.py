@@ -7,9 +7,6 @@ import re
 import logging
 import uuid
 from duckduckgo_search import DDGS
-import os
-import signal
-import shutil
 
 
 logging.basicConfig(
