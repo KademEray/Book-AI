@@ -1,12 +1,16 @@
 from flask import Flask, request, jsonify
 import json
-import chromadb
 from chromadb import PersistentClient
 import requests
 from datetime import datetime
 import re
 import logging
 import uuid
+from duckduckgo_search import DDGS
+import os
+import signal
+import shutil
+
 
 logging.basicConfig(
     filename='backend/backend.log',
@@ -65,8 +69,15 @@ class AgentSystem:
         response_data = {"steps": [], "final_response": ""}
         context = self.get_context()
 
-        # Schritt 1: Speichere den initialen Benutzerinput
-        user_input_id = self.store_context("User Input", user_input)
+        # Entscheidung vor der Synopsis-Agent
+        logger.debug("Entscheide, ob eine Internetsuche für die Synopsis erforderlich ist...")
+        decision_result = decision_agent(context, user_input, task_type="Synopsis")
+        response_data["steps"].append(decision_result["log"])
+
+        if decision_result["output"] == "Ja":
+            logger.info("Internetsuche wurde bereits durchgeführt. Ergebnisse werden verwendet.")
+        else:
+            logger.info("Keine Internetsuche erforderlich.")
 
         # Schritt 2: Synopsis-Agent
         validated_synopsis = None
@@ -189,6 +200,235 @@ class AgentSystem:
         except Exception as e:
             logger.error(f"Fehler bei der Validierung gespeicherter Daten: {e}")
             return []
+        
+def decision_agent(context, input_text, task_type="Synopsis"):
+    """
+    Entscheidet, ob eine Internetsuche erforderlich ist und führt bei Bedarf eine Suchanfrage aus.
+
+    :param context: Der aktuelle Kontext.
+    :param input_text: Der Benutzerinput oder aktuelle Textabschnitt.
+    :param task_type: Art der Aufgabe ("Synopsis", "Unterkapitel").
+    :return: Ein Dictionary mit Log und Ergebnis ("Ja" oder "Nein") sowie optional der Suchanfrage.
+    """
+    log = {"agent": "DecisionAgent", "status": "running", "details": []}
+    try:
+        # Unterschiedliche Anweisungen basierend auf task_type
+        task_instruction = {
+            "Synopsis": "Entscheide, ob eine Internetsuche notwendig ist, um eine prägnante Synopsis zu erstellen.",
+            "Unterkapitel": "Entscheide, ob eine Internetsuche notwendig ist, um präzise Unterkapitel zu erstellen."
+        }.get(task_type, "Entscheide, ob eine Internetsuche notwendig ist.")
+
+        prompt = f"""
+        Kontext:
+        {context}
+
+        Aufgabe:
+        {task_instruction}
+
+        Eingabe:
+        {input_text}
+
+        Antworte ausschließlich mit "Ja" oder "Nein". Gebe keine zusätzlichen Erklärungen, Kommentare oder andere Informationen zurück.
+        """
+
+        logger.debug(f"Prompt für DecisionAgent (Task-Typ: {task_type}):\n{prompt}")
+        
+        llm = OllamaLLM()
+        response = llm._call(prompt).strip().rstrip('.').lower()  # Bereinige die Antwort
+        logger.debug(f"Antwort von LLM für DecisionAgent: {response}")
+
+        if response not in ["ja", "nein"]:
+            logger.warning("Unerwartete Antwort vom LLM, Standardantwort 'Nein' wird verwendet.")
+            response = "nein"
+        
+        if response == "ja":
+            log.update({"status": "completed", "output": "Ja"})
+
+            # Aufruf des SearchQueryAgent
+            search_query_result = SearchQueryAgent(input_text=input_text, context=context, task_type=task_type)
+            log["details"].append(search_query_result["log"])
+
+            return {
+                "log": log,
+                "output": "Ja",
+                "search_query": search_query_result.get("search_query", "Keine Suchanfrage generiert.")
+            }
+        elif response == "nein":
+            log.update({"status": "completed", "output": "Nein"})
+            return {"log": log, "output": "Nein"}
+        else:
+            logger.warning("Unerwartete Antwort vom LLM, Standardantwort 'Nein' wird verwendet.")
+            log.update({"status": "failed", "output": "Nein"})
+            return {"log": log, "output": "Nein"}
+    except Exception as e:
+        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
+        logger.error(f"Fehler im DecisionAgent: {e}")
+        return {"log": log, "output": "Fehler"}
+
+def SearchQueryAgent(input_text, context, task_type="Synopsis"):
+    """
+    Erstellt eine präzise Suchanfrage basierend auf dem Benutzerinput und validiert den Output iterativ.
+    Sendet die validierte Suchanfrage an den /api/search-Endpunkt und speichert die Ergebnisse in ChromaDB.
+
+    :param user_input: Der Benutzerinput oder aktuelle Textabschnitt.
+    :param task_type: Art der Aufgabe ("Synopsis", "Unterkapitel").
+    :return: Ein Dictionary mit Log und den Ergebnissen des Suchendpunkts.
+    """
+    log = {"agent": "SearchQueryAgent", "status": "running", "details": []}
+    validated_search_query = None
+    iteration = 1
+    corrections = None
+
+    while not validated_search_query:
+        logger.info(f"Iteration {iteration}: Generierung und Validierung der Suchanfrage...")
+
+        try:
+            if isinstance(context, dict):
+                context = json.dumps(context, indent=2)
+            if isinstance(input_text, dict):
+                input_text = json.dumps(input_text, indent=2)
+            # Unterschiedliche Anweisungen basierend auf task_type
+            task_instruction = {
+                "Synopsis": "Erstelle eine kurze und prägnante Suchanfrage mit maximal 10 Wörtern, die die Schlüsselbegriffe enthält, um präzise Informationen zu einer Synopsis zu finden.",
+                "Unterkapitel": "Erstelle eine prägnante Suchanfrage mit maximal 10 Wörtern, die relevante Informationen zu einem Unterkapitel liefert."
+            }.get(task_type, "Erstelle eine allgemeine Suchanfrage basierend auf dem Benutzerinput.")
+
+            # Basisprompt für die KI
+            prompt = f"""
+            Kontext:
+            {context}
+
+            Benutzerinput:
+            {input_text}
+
+            Aufgabe:
+            {task_instruction}
+
+            Die Suchanfrage sollte direkt nutzbar sein und ausschließlich relevante Schlüsselbegriffe enthalten.
+            """
+
+            # Falls Korrekturhinweise vorliegen, erweitere den Prompt
+            if corrections:
+                prompt += f"\n\nHinweis zur Verbesserung:\n{corrections}"
+
+            logger.debug(f"Prompt für SearchQueryAgent:\n{prompt}")
+
+            # Aufruf des LLM
+            llm = OllamaLLM()
+            search_query = llm._call(prompt).strip()
+
+            # Bereinigen der Suchanfrage
+            if "`" in search_query:  # Falls die Anfrage ein Backtick enthält
+                search_query = re.search(r"`(.*?)`", search_query).group(1)  # Extrahiere nur den Inhalt innerhalb der Backticks
+
+            logger.debug(f"Bereinigte Suchanfrage: {search_query}")
+
+            log["details"].append({"iteration": iteration, "generated_query": search_query})
+
+            # Validierungs-Agent aufrufen
+            validation_result = validate_search_query(input_text=input_text, context=context, search_query=search_query)
+            log["details"].append(validation_result["log"])
+
+            if validation_result["log"]["status"] == "completed":
+                validated_search_query = search_query
+                log.update({"status": "completed", "output": validated_search_query})
+                logger.info(f"Validierte Suchanfrage: {validated_search_query}")
+            else:
+                corrections = validation_result["log"]["output"].get("corrections", "Keine Korrekturvorschläge erhalten.")
+                logger.warning(f"Validierung fehlgeschlagen: {validation_result['log']['output']}. Wiederhole...")
+                iteration += 1
+
+        except Exception as e:
+            log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
+            logger.error(f"Fehler im SearchQueryAgent: {e}")
+            return {"log": log, "search_query": f"Fehler: {str(e)}"}
+
+    # Nach erfolgreicher Validierung: Anfrage an den Endpunkt senden
+    try:
+        logger.info("Sende validierte Suchanfrage an den /api/search-Endpunkt...")
+        api_url = "http://127.0.0.1:5000/api/search"  # Lokaler Endpunkt
+        logger.debug(f"Validierte Suchanfrage: {validated_search_query}")
+        response = requests.post(api_url, json={"request_input": validated_search_query}, timeout=10)
+        logger.debug(f"Antwort vom /api/search-Endpunkt: {response}")
+        response.raise_for_status()
+
+        search_results = response.json()
+        log.update({"status": "completed", "search_results": search_results})
+        logger.info(f"Suchergebnisse erhalten: {search_results}")
+
+        # Ergebnisse in ChromaDB speichern
+        label = "Search Results"
+        data = {
+            "query": validated_search_query,
+            "results": search_results
+        }
+        agent_system.store_context(label, data)  # Nutzung der bestehenden Funktion
+        logger.info("Suchergebnisse erfolgreich in ChromaDB gespeichert.")
+
+        return {"log": log, "search_results": search_results}
+    except requests.exceptions.RequestException as e:
+        log.update({"status": "failed", "output": f"Fehler beim Senden der Suchanfrage: {str(e)}"})
+        logger.error(f"Fehler beim Senden der Suchanfrage: {e}")
+        return {"log": log, "search_results": f"Fehler: {str(e)}"}
+    except Exception as e:
+        log.update({"status": "failed", "output": f"Fehler beim Speichern in ChromaDB: {str(e)}"})
+        logger.error(f"Fehler beim Speichern in ChromaDB: {e}")
+        return {"log": log, "search_results": f"Fehler: {str(e)}"}
+
+def validate_search_query(input_text, context, search_query):
+    """
+    Validiert die generierte Suchanfrage und gibt bei Fehlern Korrekturhinweise.
+
+    :param user_input: Der Benutzerinput oder aktuelle Textabschnitt.
+    :param search_query: Die generierte Suchanfrage.
+    :return: Ein Dictionary mit Log und dem Validierungsergebnis.
+    """
+    log = {"agent": "ValidationAgent", "status": "running", "details": []}
+    try:
+        # Prompt für die Validierung
+        prompt = f"""
+        Kontext:
+        {context}
+
+        Benutzerinput:
+        {input_text}
+
+        Generierte Suchanfrage:
+        {search_query}
+
+        Aufgabe:
+        Überprüfe, ob die generierte Suchanfrage prägnant, relevant und klar formuliert ist.
+        Antworte mit:
+        - "Ja" am Anfang, wenn die Suchanfrage korrekt ist, gefolgt von einer kurzen Begründung.
+        - "Nein" am Anfang, wenn die Suchanfrage nicht korrekt ist, gefolgt von einer detaillierten Begründung und Verbesserungsvorschlägen.
+        """
+        logger.debug(f"Prompt für ValidationAgent:\n{prompt}")
+
+        # Aufruf des LLM
+        llm = OllamaLLM()
+        validation_response = llm._call(prompt).strip()
+        logger.debug(f"Antwort von LLM zur Validierung: {validation_response}")
+
+        if validation_response.startswith("Ja"):
+            log.update({"status": "completed", "output": "Validierung erfolgreich."})
+            logger.info("Suchanfrage erfolgreich validiert.")
+        else:
+            reason = validation_response.split("Begründung:", 1)[-1].strip() if "Begründung:" in validation_response else "Keine Begründung erhalten."
+            corrections = validation_response.split("Verbesserungsvorschläge:", 1)[-1].strip() if "Verbesserungsvorschläge:" in validation_response else "Keine Verbesserungsvorschläge erhalten."
+            log.update({
+                "status": "failed",
+                "output": {
+                    "reason": reason,
+                    "corrections": corrections
+                }
+            })
+            logger.warning(f"Validierung fehlgeschlagen. Begründung: {reason}, Korrekturvorschläge: {corrections}")
+
+    except Exception as e:
+        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
+        logger.error(f"Fehler im ValidationAgent: {e}")
+
+    return {"log": log}
 
 # Synopsis-Agent
 def synopsis_agent(user_input, context):
@@ -743,13 +983,25 @@ def writing_agent(user_input, validated_chapters):
         logger.debug(f"[DEBUG] validated_chapters: {validated_chapters}")
 
         for chapter in validated_chapters.get("Chapters", []):
-            logger.debug(f"[DEBUG] Verarbeite Kapitel: {chapter}")
+            logger.debug(f"[DEBUG] Verarbeite Kapitel: {chapter['Title']}")
 
             chapter_content = {"Number": chapter["Number"], "Title": chapter["Title"], "Subchapters": []}
-            
-            # Verarbeite Unterkapitel
+
             for subchapter in chapter.get("Subchapters", []):
                 subchapter_validated = False
+
+                # Entscheidung vor dem Schreiben des Unterkapitels
+                decision_result = decision_agent(
+                    context=agent_system.get_context(),
+                    input_text=subchapter["Title"],
+                    task_type="Unterkapitel"
+                )
+                log["details"].append(decision_result["log"])
+
+                if decision_result["output"] == "Ja":
+                    logger.info(f"Internetsuche erforderlich für Unterkapitel: {subchapter['Title']}")
+                    # Optionale Integration einer Internetsuche hier
+
                 while not subchapter_validated:
                     try:
                         subchapter_prompt = f"""
@@ -790,7 +1042,6 @@ def writing_agent(user_input, validated_chapters):
                         })
                         break  # Bricht die Schleife für dieses Unterkapitel ab, um Endlosschleifen zu vermeiden
 
-            # Füge Kapitel mit Unterkapiteln zum finalen Text hinzu
             final_text["Chapters"].append(chapter_content)
 
         if final_text["Chapters"]:
@@ -815,7 +1066,155 @@ agent_system.add_agent(chapter_agent, kontrolliert=True)
 agent_system.add_agent(chapter_validation_agent, kontrolliert=False)
 agent_system.add_agent(writing_agent, kontrolliert=True)
 
+#-----------------------------------------------------
+class ChatAgent:
+    def __init__(self, vectorstore):
+        self.vectorstore = vectorstore
 
+    def chat(self, user_input):
+        log = {"agent": "ChatAgent", "status": "running", "details": []}
+        try:
+            # Kontext abrufen
+            logger.debug("Rufe den vollständigen Kontext ab...")
+            context = self.get_context_all()
+            logger.debug(f"Erhaltener Kontext:\n{context}")
+
+            # Aktualisierter Prompt für die KI
+            prompt = f"""
+            Dies ist ein fortlaufender Chat. Der Kontext enthält alle vorherigen Interaktionen zwischen dem Benutzer und der KI.
+
+            Kontext:
+            {context}
+
+            Neue Benutzeranfrage:
+            {user_input}
+
+            Basierend auf dem Kontext und der neuen Anfrage, gib bitte eine passende Antwort:
+            """
+            logger.debug(f"Prompt für ChatAgent:\n{prompt}")
+            
+            # KI anfragen
+            llm = OllamaLLM()
+            response = llm._call(prompt).strip()
+            logger.debug(f"Antwort von LLM:\n{response}")
+
+            # Kontext speichern
+            self.store_context("User Input", user_input)
+            self.store_context("AI Response", response)
+
+            log.update({
+                "status": "completed",
+                "output": response,
+                "details": ["Chat erfolgreich abgeschlossen."]
+            })
+            return {"log": log, "final_response": response}
+        
+        except Exception as e:
+            log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
+            logger.error(f"Fehler im ChatAgent: {e}")
+            return {"log": log, "final_response": f"Fehler: {str(e)}"}
+
+    def get_next_document_id(self):
+        """Ermittelt die nächste ID basierend auf der Anzahl der gespeicherten Dokumente."""
+        try:
+            all_data = self.vectorstore.get()  # Alle Daten abrufen
+            existing_ids = all_data.get("ids", [])
+            return str(len(existing_ids) + 1)
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen der nächsten ID: {e}")
+            return "1"  # Fallback auf ID "1", falls ein Fehler auftritt
+
+    def store_context(self, label, data):
+        """Speichert den Kontext in ChromaDB mit einer fortlaufenden ID."""
+        try:
+            doc_id = self.get_next_document_id()  # Zugriff auf die Instanzmethode
+            metadata = {"timestamp": datetime.now().isoformat()}
+            logger.info(f"Speichere Kontext: {label} -> {data} (ID: {doc_id})")  # Nur die ersten 100 Zeichen loggen
+
+            # Dokument speichern
+            self.vectorstore.upsert(
+                documents=[f"{label}: {data}"],
+                ids=[doc_id],
+                metadatas=[metadata]
+            )
+            logger.debug("Speichern erfolgreich.")
+        except Exception as e:
+            logger.error(f"Fehler beim Speichern des Kontexts: {e}")
+
+    def get_context(self):
+        """Ruft den gespeicherten Kontext aus ChromaDB ab."""
+        try:
+            logger.debug("Abfrage aller Dokumente aus der Collection.")
+            results = self.vectorstore.get()  # Alle Dokumente abrufen
+            documents = results.get("documents", [])
+            logger.info(f"Kontext erfolgreich abgerufen: {len(documents)} Dokument(e) gefunden.")
+            return "\n".join(documents)
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen des Kontexts: {e}")
+            return "Standardkontext: Keine vorherigen Daten gefunden."
+
+    def get_context_all(self):
+        """Ruft alle gespeicherten Dokumente ab."""
+        try:
+            results = self.vectorstore.get()  # Alle Daten aus der Collection abrufen
+            documents = results.get("documents", [])
+            if not documents:
+                logger.warning("Keine gespeicherten Dokumente gefunden.")
+                return "Keine gespeicherten Dokumente verfügbar."
+            logger.info(f"{len(documents)} Dokument(e) erfolgreich abgerufen.")
+            return "\n".join(documents)
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen aller Dokumente: {e}")
+            return "Standardkontext: Keine Dokumente gefunden."
+
+class DuckDuckGoSearch:
+    """DuckDuckGo-Suche."""
+
+    def perform_search(self, query):
+        try:
+            logger.info(f"Suche nach: {query}")
+            max_results = 10  # Ziel: 10 relevante Ergebnisse
+            collected_results = []
+            logger.info(f"Suche nach: {query}")
+            # Führe die Suche durch
+            results = DDGS().text(query, region='de-de', safesearch='Off', max_results=50)  # Höhere Anzahl abrufen, um zu filtern
+            #fallback without region search und query format anpassen
+            if not results:
+                results = DDGS().text(query, region='wt-wt', safesearch='Off', max_results=50)  # Höhere Anzahl abrufen, um zu filtern
+            if not results:
+                results = DDGS().text(query, safesearch='Off', max_results=50)  # Höhere Anzahl abrufen, um zu filtern
+            
+            logger.info(f"Anzahl der Suchergebnisse: {len(results)}")
+            logger.info(f"Ergebnisse: {results}")
+
+            if not results:
+                logger.warning("Keine Ergebnisse gefunden.")
+                return {"results": []}
+
+            # Filtere Ergebnisse mit Titel, Link und Snippet
+            for result in results:
+                if (
+                    "title" in result and result["title"].strip() and
+                    "href" in result and result["href"].strip() and
+                    "body" in result and result["body"].strip()
+                ):
+                    collected_results.append({
+                        "title": result["title"].strip(),
+                        "link": result["href"].strip(),
+                        "snippet": result["body"].strip()
+                    })
+
+                # Beende die Schleife, sobald 10 Ergebnisse erreicht wurden
+                if len(collected_results) >= max_results:
+                    break
+
+            # Rückgabe der gesammelten Ergebnisse
+            logger.info(f"Gefundene relevante Ergebnisse: {len(collected_results)}")
+            return {"results": collected_results}
+
+        except Exception as e:
+            return {"error": f"Fehler bei der DuckDuckGo-Suche: {str(e)}"}
+        
 @app.route('/api/generate', methods=['POST'])
 def generate():
     try:
@@ -836,6 +1235,57 @@ def generate():
         logger.error(f"Error during request processing: {e}")
         return jsonify({"error": f"Fehler: {str(e)}"}), 500
 
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    try:
+        data = request.get_json()
+        user_input = data.get("user_input", "")
+        logger.info(f"Received chat request: user_input={user_input}")
+        
+        # Chat-Agent erstellen
+        chat_agent = ChatAgent(vectorstore)
+        result = chat_agent.chat(user_input)
+
+        if not result or "final_response" not in result:
+            raise ValueError("Die Antwortstruktur ist unvollständig.")
+        
+        logger.info(f"Result: {result}")
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error during chat request processing: {e}")
+        return jsonify({"error": f"Fehler: {str(e)}"}), 500
+    
+@app.route('/api/search', methods=['POST'])
+def search():
+    try:
+        # Anfrage-Daten verarbeiten
+        data = request.get_json()
+        request_input = data.get("request_input", "").strip()
+        if not request_input:
+            raise ValueError("Die Suchanfrage ist leer. Bitte einen gültigen Suchbegriff angeben.")
+
+        request_input = request_input.replace('"', '').replace("'", "").strip()
+
+        logger.info(f"Received search request: request_input={request_input}")
+
+        # DuckDuckGo-Suche durchführen
+        search_agent = DuckDuckGoSearch()
+        result = search_agent.perform_search(query=request_input)
+
+        # Überprüfen, ob Ergebnisse vorhanden sind
+        if not result or not result.get("results"):
+            logger.warning("Keine relevanten Ergebnisse gefunden.")
+            return jsonify({"results": [], "message": "Keine relevanten Ergebnisse gefunden."})
+
+        logger.info(f"Search Result: {result}")
+        return jsonify(result)
+
+    except ValueError as e:
+        logger.error(f"Validation Error: {e}")
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error during search request processing: {e}")
+        return jsonify({"error": f"Fehler: {str(e)}"}), 500
 
 # CORS aktivieren
 @app.after_request
