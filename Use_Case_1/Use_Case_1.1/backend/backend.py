@@ -1,11 +1,12 @@
+import json
 import os
-from flask import Flask, request, jsonify, send_file, Response
+from flask import Flask, request, jsonify
 from chromadb import PersistentClient
 import logging
 from agent import AgentSystem
 from chatAgent import ChatAgent
 from duckduckgo import DuckDuckGoSearch
-import zipfile
+
 
 
 logging.basicConfig(
@@ -26,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 # Flask-Setup
 app = Flask(__name__)
-RESULTS_DIR = "Use_Case_1/Use_Case_1.1/Ergebnisse"
 
 
 @app.route('/api/generate', methods=['POST'])
@@ -102,6 +102,35 @@ def search():
         logger.error(f"Error during search request processing: {e}")
         return jsonify({"error": f"Fehler: {str(e)}"}), 500
     
+@app.route('/api/save_chat', methods=['POST'])
+def save_chat():
+    """
+    Speichert den gesamten Chatverlauf in einer Datei im Ordner Chat_Saves.
+    """
+    try:
+        data = request.get_json()
+        chat_history = data.get("chat_history", [])
+        filename = data.get("filename", "chatlog.json")
+
+        if not chat_history:
+            return jsonify({"error": "Kein Chatverlauf zum Speichern vorhanden."}), 400
+
+        # Ordner für die Speicherung erstellen, falls nicht vorhanden
+        save_directory = "./Use_Case_1/Use_Case_1.1/Chat_Saves"
+        os.makedirs(save_directory, exist_ok=True)
+
+        # Datei im Ordner Chat_Saves speichern
+        file_path = os.path.join(save_directory, filename)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(chat_history, f, indent=4, ensure_ascii=False)
+
+        logger.info(f"Chatverlauf gespeichert: {file_path}")
+        return jsonify({"message": f"Chatverlauf erfolgreich in {file_path} gespeichert."}), 200
+
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern des Chatverlaufs: {e}")
+        return jsonify({"error": f"Fehler: {str(e)}"}), 500
+
 
 # CORS aktivieren
 @app.after_request
@@ -112,5 +141,4 @@ def after_request(response):
     return response
 
 if __name__ == "__main__":
-    os.makedirs(RESULTS_DIR, exist_ok=True)
     app.run(host="0.0.0.0", port=5000)
