@@ -12,14 +12,14 @@ from ollama import OllamaLLM
 
 
 logging.basicConfig(
-    filename='Use_Case_1/Use_Case_1.1/backend/backend.log',
+    filename='Use_Case_1/Use_Case_1.2/backend/backend.log',
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     encoding='utf-8'
 )
 
 # Initialisiere Chroma mit persistentem Speicher
-client = PersistentClient(path="./Use_Case_1/Use_Case_1.1/backend/chroma_storage")
+client = PersistentClient(path="./Use_Case_1/Use_Case_1.2/backend/chroma_storage")
 
 # Erstelle oder erhalte eine Sammlung (Collection)
 vectorstore = client.get_or_create_collection(
@@ -255,7 +255,7 @@ def save_evaluation_to_txt(response_data):
     """
     try:
         # Ordner erstellen, falls nicht vorhanden
-        output_dir = "Use_Case_1/Use_Case_1.1/Ergebnisse"
+        output_dir = "Use_Case_1/Use_Case_1.2/Ergebnisse"
         os.makedirs(output_dir, exist_ok=True)
 
         # Buchname bestimmen
@@ -1192,7 +1192,7 @@ def validate_summary(summary):
         prompt = f"""
         Zusammenfassung: {summary['Summary']}
 
-        Aufgabe: Überprüfe, ob diese Zusammenfassung die Hauptpunkte des Textes korrekt wiedergibt und
+        Aufgabe: Überprüfe, ob diese Zusammenfassung die Hauptpunkte des Textes korrekt wiedergibt,
         logisch aufgebaut ist. Bedenke das ist nur eine Grobe Validierung um zu schauen ob der Text eine korrekte Struktur hat. Antworte mit nur "Ja" oder "Nein" 
         und gib eine Begründung, falls "Nein".
         """
@@ -1242,7 +1242,7 @@ def evaluate_chapters(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1277,7 +1277,7 @@ def evaluate_paragraphs(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1312,7 +1312,7 @@ def evaluate_book_type(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1347,7 +1347,7 @@ def evaluate_content(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1382,7 +1382,7 @@ def evaluate_grammar(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1417,7 +1417,7 @@ def evaluate_style(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1452,7 +1452,7 @@ def evaluate_tension(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
