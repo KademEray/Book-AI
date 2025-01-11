@@ -4,7 +4,7 @@ from duckduckgo_search import DDGS
 
 
 logging.basicConfig(
-    filename='backend/backend.log',
+    filename='Use_Case_1/Use_Case_1.1/backend/backend.log',
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     encoding='utf-8'

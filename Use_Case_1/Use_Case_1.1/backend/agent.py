@@ -1,6 +1,7 @@
 from datetime import datetime
 import json
 import logging
+import os
 import re
 import uuid
 
@@ -11,14 +12,14 @@ from ollama import OllamaLLM
 
 
 logging.basicConfig(
-    filename='backend/backend.log',
+    filename='Use_Case_1/Use_Case_1.1/backend/backend.log',
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     encoding='utf-8'
 )
 
 # Initialisiere Chroma mit persistentem Speicher
-client = PersistentClient(path="./chroma_storage")
+client = PersistentClient(path="./Use_Case_1/Use_Case_1.1/backend/chroma_storage")
 
 # Erstelle oder erhalte eine Sammlung (Collection)
 vectorstore = client.get_or_create_collection(
@@ -147,8 +148,21 @@ class AgentSystem:
             "final_text": final_text  # Finaler Text enthält bereits Quellen und Titel
         }
 
-        logger.debug(f"All agents completed. Returning response_data: {response_data}")
-        return response_data
+        save_evaluation_to_txt(response_data)
+        logger.info("Buchbewertung erfolgreich gespeichert.")
+
+        terminal_output = {
+            "final_grade": final_evaluation,
+            "detailed_results": details
+        }
+
+        # Validierung vor Rückgabe
+        if not terminal_output.get("final_grade") or not terminal_output.get("detailed_results"):
+            logger.error(f"Fehler in terminal_output: {terminal_output}")
+            raise ValueError("terminal_output ist unvollständig.")
+
+        logger.debug(f"All agents completed. Returning terminal_output: {terminal_output}")
+        return terminal_output
 
 
 
@@ -216,7 +230,89 @@ class AgentSystem:
         except Exception as e:
             logger.error(f"Fehler bei der Validierung gespeicherter Daten: {e}")
             return []
-        
+
+def sanitize_filename(filename):
+    """
+    Entfernt ungültige Zeichen aus einem Dateinamen.
+    """
+    return re.sub(r'[<>:"/\\|?*]', '', filename).strip()
+
+def get_next_book_name(output_dir):
+    """
+    Findet den nächsten verfügbaren Buchnamen im Format 'book_x', wobei x eine fortlaufende Zahl ist.
+    """
+    existing_files = os.listdir(output_dir)
+    book_numbers = [
+        int(re.search(r'book_(\d+)', file).group(1))
+        for file in existing_files if re.match(r'book_\d+\.txt', file)
+    ]
+    next_number = max(book_numbers, default=0) + 1
+    return f"book_{next_number}"
+
+def save_evaluation_to_txt(response_data):
+    """
+    Speichert die Buchbewertung in einer strukturierten .txt-Datei im Ordner "Ergebnisse".
+    """
+    try:
+        # Ordner erstellen, falls nicht vorhanden
+        output_dir = "Use_Case_1/Use_Case_1.1/Ergebnisse"
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Buchname bestimmen
+        book_name = get_next_book_name(output_dir)
+
+        # Datei-Pfad
+        output_file = os.path.join(output_dir, f"{book_name}.txt")
+
+        # Validierung der response_data Struktur
+        if not response_data.get("evaluation"):
+            raise ValueError("Fehlender 'evaluation'-Schlüssel in response_data.")
+
+        if not response_data["evaluation"].get("final_grade"):
+            raise ValueError("Fehlender 'final_grade'-Schlüssel in response_data['evaluation'].")
+
+        if not response_data["evaluation"].get("detailed_results"):
+            raise ValueError("Fehlender 'detailed_results'-Schlüssel in response_data['evaluation'].")
+
+        if not response_data["evaluation"].get("final_text"):
+            raise ValueError("Fehlender 'final_text'-Schlüssel in response_data['evaluation'].")
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            # Final Grade
+            final_grade = response_data["evaluation"]["final_grade"]
+            f.write("Finale Bewertung:\n")
+            f.write(f"Score: {final_grade['score']}\n")
+            f.write(f"Grade: {final_grade['grade']}\n\n")
+
+            # Detailed Results
+            f.write("Detaillierte Ergebnisse:\n")
+            for result in response_data["evaluation"]["detailed_results"]:
+                f.write(f"Agent: {result['agent']}\n")
+                f.write(f"Erklärung: {result['explanation']}\n")
+                f.write(f"Bewertung: {result['output']}\n\n")
+
+            # Inhaltsverzeichnis
+            final_text = response_data["evaluation"]["final_text"]
+            f.write("Inhaltsverzeichnis:\n")
+            for chapter in final_text["Chapters"]:
+                f.write(f"Kapitel {chapter['Number']}: {chapter['Title']}\n")
+                for subchapter in chapter["Subchapters"]:
+                    f.write(f"  {subchapter['Number']}: {subchapter['Title']}\n")
+            f.write("\n")
+
+            # Finaler Text
+            f.write("Finaler Text:\n")
+            for chapter in final_text["Chapters"]:
+                f.write(f"Kapitel {chapter['Number']}: {chapter['Title']}\n")
+                for subchapter in chapter["Subchapters"]:
+                    f.write(f"  {subchapter['Number']}: {subchapter['Title']}\n")
+                    f.write(f"  Inhalt:\n{subchapter['Content']}\n\n")
+
+        logger.debug(f"Die Buchbewertung wurde erfolgreich in {output_file} gespeichert.")
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern der Buchbewertung: {e}")
+        raise
+
 def decision_agent(context, input_text, task_type="Synopsis"):
     """
     Entscheidet, ob eine Internetsuche erforderlich ist und führt bei Bedarf eine Suchanfrage aus.
@@ -227,7 +323,6 @@ def decision_agent(context, input_text, task_type="Synopsis"):
     :return: Ein Dictionary mit Log und Ergebnis ("Ja" oder "Nein") sowie optional der Suchanfrage.
     """
     log = {"agent": "DecisionAgent", "status": "running", "details": []}
-    sources_and_titles = {}
 
     try:
         # Unterschiedliche Anweisungen basierend auf task_type
@@ -266,18 +361,10 @@ def decision_agent(context, input_text, task_type="Synopsis"):
             search_query_result = SearchQueryAgent(input_text=input_text, context=context, task_type=task_type)
             log["details"].append(search_query_result["log"])
 
-            # Quellen und Titel aus Suchergebnissen extrahieren
-            search_results = search_query_result.get("search_results", [])
-            for result in search_results:
-                title = result.get("title", "Unbekannter Titel")
-                url = result.get("url", "Keine URL verfügbar")
-                sources_and_titles[title] = url
-
             return {
                 "log": log,
                 "output": "Ja",
                 "search_query": search_query_result.get("search_query", "Keine Suchanfrage generiert."),
-                "sources_and_titles": sources_and_titles
             }
         elif response == "nein":
             log.update({"status": "completed", "output": "Nein"})
@@ -285,11 +372,11 @@ def decision_agent(context, input_text, task_type="Synopsis"):
         else:
             logger.warning("Unerwartete Antwort vom LLM, Standardantwort 'Nein' wird verwendet.")
             log.update({"status": "failed", "output": "Nein"})
-            return {"log": log, "output": "Nein", "sources_and_titles": sources_and_titles}
+            return {"log": log, "output": "Nein"}
     except Exception as e:
         log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
         logger.error(f"Fehler im DecisionAgent: {e}")
-        return {"log": log, "output": "Fehler", "sources_and_titles": sources_and_titles}
+        return {"log": log, "output": "Fehler"}
 
 def SearchQueryAgent(input_text, context, task_type="Synopsis"):
     """
@@ -1002,7 +1089,7 @@ def chapter_validation_agent(chapter_dict, **kwargs):
 
 def writing_agent(user_input, validated_chapters):
     log = {"agent": "WritingAgent", "status": "running", "details": []}
-    final_text = {"Chapters": [], "sources_and_titles": {}}
+    final_text = {"Chapters": []}
 
     try:
         logger.debug("WritingAgent gestartet")
@@ -1023,10 +1110,6 @@ def writing_agent(user_input, validated_chapters):
                     task_type="Unterkapitel"
                 )
                 log["details"].append(decision_result["log"])
-
-                # Quellen und Titel sammeln
-                if "sources_and_titles" in decision_result:
-                    final_text["sources_and_titles"].update(decision_result["sources_and_titles"])
 
                 if decision_result["output"] == "Ja":
                     logger.info(f"Internetsuche erforderlich für Unterkapitel: {subchapter['Title']}")
@@ -1120,7 +1203,7 @@ def validate_summary(summary):
         else:
             logger.warning(f"Zusammenfassung nicht validiert: {validation_result}")
             # Speichere die fehlerhafte Zusammenfassung und die Validierungsantwort
-            AgentSystem.store_context(
+            agent_system.store_context(
                 "Failed Summary Validation",
                 {
                     "Summary": summary["Summary"],
@@ -1135,7 +1218,7 @@ def validate_summary(summary):
     except Exception as e:
         logger.error(f"Fehler bei der Validierung der Zusammenfassung: {e}")
         # Speichere die fehlerhafte Zusammenfassung und die Fehlermeldung
-        AgentSystem.store_context(
+        agent_system.store_context(
             "Failed Summary Validation",
             {
                 "Summary": summary["Summary"],
@@ -1159,7 +1242,7 @@ def evaluate_chapters(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1194,7 +1277,7 @@ def evaluate_paragraphs(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1229,7 +1312,7 @@ def evaluate_book_type(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1264,7 +1347,7 @@ def evaluate_content(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1299,7 +1382,7 @@ def evaluate_grammar(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1334,7 +1417,7 @@ def evaluate_style(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1369,7 +1452,7 @@ def evaluate_tension(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1440,25 +1523,36 @@ def map_score_to_grade(score):
 # Final Score Calculation
 def calculate_final_score(weighted_scores_with_details):
     """
-    Berechnet die Endnote basierend auf gewichteten Bewertungen und liefert alle Details.
+    Berechnet die Endnote basierend auf gewichteten Bewertungen.
     """
     try:
         # Gewichtungen für universelle Bewertung
         weights = [1.5, 1.5, 1, 2, 1.5, 1.5, 1]  # Kapitel, Absätze, Buchart, Inhalt, Grammatik, Stil, Spannung
 
+        # Validierung der Eingabestruktur
+        if all(isinstance(entry, (int, float)) for entry in weighted_scores_with_details):
+            logger.info("Numerische Werte in weighted_scores_with_details erkannt.")
+            # Konvertiere numerische Werte in das erwartete Format
+            weighted_scores_with_details = [
+                {"output": score, "log": {"agent": f"Agent {i + 1}", "explanation": "Keine Erklärung verfügbar"}}
+                for i, score in enumerate(weighted_scores_with_details)
+            ]
+        elif not all(isinstance(entry, dict) and "output" in entry and "log" in entry for entry in weighted_scores_with_details):
+            logger.error(f"Unerwartetes Format in weighted_scores_with_details: {weighted_scores_with_details}")
+            return {"score": 0, "grade": "Fehler", "details": []}
+
+        # Überprüfen, ob Gewichtungen und Ergebnisse übereinstimmen
+        if len(weighted_scores_with_details) != len(weights):
+            logger.warning(f"Anzahl der Ergebnisse ({len(weighted_scores_with_details)}) stimmt nicht mit der Anzahl der Gewichtungen ({len(weights)}) überein.")
+            weights = weights[:len(weighted_scores_with_details)]
+
         weighted_total = 0
         total_weight = sum(weights)
-        detailed_results = []
 
-        for i, (score, details) in enumerate(weighted_scores_with_details):
+        for i, result in enumerate(weighted_scores_with_details):
+            score = result["output"]  # Hole die Punktzahl
             weight = weights[i]
             weighted_total += score * weight
-            detailed_results.append({
-                "category": details.get("agent"),
-                "score": score,
-                "weight": weight,
-                "explanation": details.get("explanation", "Keine Erklärung verfügbar")
-            })
 
         # Berechne den gewichteten Durchschnitt
         weighted_average = weighted_total / total_weight
@@ -1469,12 +1563,11 @@ def calculate_final_score(weighted_scores_with_details):
         return {
             "score": round(weighted_average, 2),
             "grade": final_grade,
-            "details": detailed_results
+            "details": []  # Entfernt category und explanation, da sie redundant sind
         }
     except Exception as e:
         logger.error(f"Fehler bei der Berechnung der Endnote: {e}")
         return {"score": 0, "grade": "Fehler", "details": []}
-
 
 # Initialisiere das Agentensystem
 agent_system = AgentSystem()

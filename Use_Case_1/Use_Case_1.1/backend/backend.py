@@ -1,20 +1,22 @@
-from flask import Flask, request, jsonify
+import os
+from flask import Flask, request, jsonify, send_file, Response
 from chromadb import PersistentClient
 import logging
 from agent import AgentSystem
 from chatAgent import ChatAgent
 from duckduckgo import DuckDuckGoSearch
+import zipfile
 
 
 logging.basicConfig(
-    filename='backend/backend.log',
+    filename='Use_Case_1/Use_Case_1.1/backend/backend.log',
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     encoding='utf-8'
 )
 
 # Initialisiere Chroma mit persistentem Speicher
-client = PersistentClient(path="./chroma_storage")
+client = PersistentClient(path="./Use_Case_1/Use_Case_1.1/backend/chroma_storage")
 
 # Erstelle oder erhalte eine Sammlung (Collection)
 vectorstore = client.get_or_create_collection(
@@ -24,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 # Flask-Setup
 app = Flask(__name__)
+RESULTS_DIR = "Use_Case_1/Use_Case_1.1/Ergebnisse"
 
 
 @app.route('/api/generate', methods=['POST'])
@@ -38,7 +41,7 @@ def generate():
         # min_chapter an run_agents übergeben
         agent_system = AgentSystem()
         result = agent_system.run_agents(user_input, min_chapter=min_chapter, min_subchapter=min_subchapter)
-        if not result or "final_response" not in result:
+        if not result:
             raise ValueError("Die Antwortstruktur ist unvollständig.")
         
         logger.info(f"Result: {result}")
@@ -98,6 +101,7 @@ def search():
     except Exception as e:
         logger.error(f"Error during search request processing: {e}")
         return jsonify({"error": f"Fehler: {str(e)}"}), 500
+    
 
 # CORS aktivieren
 @app.after_request
@@ -108,4 +112,5 @@ def after_request(response):
     return response
 
 if __name__ == "__main__":
+    os.makedirs(RESULTS_DIR, exist_ok=True)
     app.run(host="0.0.0.0", port=5000)

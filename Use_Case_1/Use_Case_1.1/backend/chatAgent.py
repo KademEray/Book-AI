@@ -7,14 +7,14 @@ from ollama import OllamaLLM
 
 
 logging.basicConfig(
-    filename='backend/backend.log',
+    filename='Use_Case_1/Use_Case_1.1/backend/backend.log',
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     encoding='utf-8'
 )
 
 # Initialisiere Chroma mit persistentem Speicher
-client = PersistentClient(path="./chroma_storage")
+client = PersistentClient(path="./Use_Case_1/Use_Case_1.1/backend/chroma_storage")
 
 # Erstelle oder erhalte eine Sammlung (Collection)
 vectorstore = client.get_or_create_collection(
