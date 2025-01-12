@@ -629,6 +629,7 @@ def validation_agent(user_input, output):
     agents = [
         validation_agent_content,
         validation_agent_logic,
+        validation_agent_language
     ]
     
     for agent in agents:
@@ -669,7 +670,7 @@ def validation_agent_content(user_input, output):
         Ausgabe:
         {output}
 
-        Antworte mit:
+        Sehr wichtig Antworte immer am Anfang mit:
         1. "Ja" oder "Nein", ob die Ausgabe inhaltlich korrekt ist.
         2. Begründung, warum die Ausgabe korrekt oder falsch ist.
         """
@@ -712,9 +713,9 @@ def validation_agent_logic(user_input, output):
         Ausgabe:
         {output}
 
-        Antworte mit:
-        1. "Ja" oder "Nein", ob die Ausgabe logisch konsistent ist.
-        2. Begründung, warum die Ausgabe konsistent oder inkonsistent ist.
+        Sehr wichtig Antworte immer am Anfang mit:
+        1. "Ja" oder "Nein", ob die Ausgabe inhaltlich korrekt ist.
+        2. Begründung, warum die Ausgabe korrekt oder falsch ist.
         """
         llm = OllamaLLM()
         validation_result = llm._call(prompt)
@@ -757,9 +758,9 @@ def validation_agent_language(user_input, output):
         Ausgabe:
         {output}
 
-        Antworte mit:
-        1. "Ja" oder "Nein", ob die Ausgabe sprachlich korrekt ist.
-        2. Eine Liste von gefundenen Fehlern oder eine Begründung, warum die Ausgabe korrekt ist.
+        Sehr wichtig Antworte immer am Anfang mit:
+        1. "Ja" oder "Nein", ob die Ausgabe inhaltlich korrekt ist.
+        2. Begründung, warum die Ausgabe korrekt oder falsch ist.
         """
         llm = OllamaLLM()
         validation_result = llm._call(prompt)
@@ -785,105 +786,6 @@ def validation_agent_language(user_input, output):
             "output": f"Fehler bei der Validierung: {str(e)}"
         })
         logger.error(f"[DEBUG] Fehler in LanguageValidationAgent: {e}")
-
-    return {"log": log}
-
-## 4. Zielgruppenorientierter Validierungsagent
-def validation_agent_audience(user_input, output):
-    log = {"agent": "AudienceValidationAgent", "status": "processing"}
-
-    try:
-        logger.debug("[DEBUG] AudienceValidationAgent gestartet")
-        logger.debug(f"[DEBUG] Ausgabe zum Validieren: {output}")
-        logger.debug(f"[DEBUG] Zielgruppendetails nach dem User_Input: {user_input}")
-
-        prompt = f"""
-        Überprüfe die folgende Ausgabe darauf, ob sie für die Zielgruppe geeignet ist, orientiere dich hierbei an den user_input um die Zielgruppe herauszufinden. Beurteile, ob der Stil, die Tonalität und die Komplexität der Zielgruppe entsprechen.
-
-        Zielgruppe:
-        {user_input}
-
-        Ausgabe:
-        {output}
-
-        Antworte mit:
-        1. "Ja" oder "Nein", ob die Ausgabe zur Zielgruppe passt.
-        2. Begründung, warum die Ausgabe geeignet oder ungeeignet ist.
-        """
-        llm = OllamaLLM()
-        validation_result = llm._call(prompt)
-        logger.debug(f"[DEBUG] Validierungsergebnis von LLM: {validation_result}")
-
-        if "Ja" in validation_result:
-            logger.info("Validierung erfolgreich. Ausgabe ist inhaltlich korrekt.")
-            log.update({
-                "status": "completed",
-                "output": "Validierung erfolgreich. Ausgabe ist für die Zielgruppe geeignet."
-            })
-        else:
-            reason = validation_result.split("Begründung:")[1].strip() if "Begründung:" in validation_result else "Unzureichende Begründung erhalten."
-            logger.warning(f"Validierung fehlgeschlagen: {reason}")
-            log.update({
-                "status": "failed",
-                "output": f"Validierung fehlgeschlagen: {reason}"
-            })
-
-    except Exception as e:
-        log.update({
-            "status": "failed",
-            "output": f"Fehler bei der Validierung: {str(e)}"
-        })
-        logger.error(f"[DEBUG] Fehler in AudienceValidationAgent: {e}")
-
-    return {"log": log}
-
-## 5. Referenzbasierter Validierungsagent
-def validation_agent_reference(user_input, output):
-    log = {"agent": "ReferenceValidationAgent", "status": "processing"}
-
-    try:
-        logger.debug("[DEBUG] ReferenceValidationAgent gestartet")
-        logger.debug(f"[DEBUG] Ausgabe zum Validieren: {output}")
-        context = agent_system.get_context()  # Kontext abrufen
-        logger.debug(f"[DEBUG] Abgerufener Kontext: {context}")
-
-        prompt = f"""
-        Vergleiche die folgende Ausgabe mit bekannten Referenzen oder Standards im Kontext des Themas vom context. Überprüfe, ob die Inhalte den Standards entsprechen oder abweichen.
-
-        Context:
-        {context}
-
-        Ausgabe:
-        {output}
-
-        Antworte mit:
-        1. "Ja" oder "Nein", ob die Ausgabe mit den Referenzen übereinstimmt.
-        2. Begründung, warum die Ausgabe mit den Standards übereinstimmt oder abweicht.
-        """
-        llm = OllamaLLM()
-        validation_result = llm._call(prompt)
-        logger.debug(f"[DEBUG] Validierungsergebnis von LLM: {validation_result}")
-
-        if "Ja" in validation_result:
-            logger.info("Validierung erfolgreich. Ausgabe ist inhaltlich korrekt.")
-            log.update({
-                "status": "completed",
-                "output": "Validierung erfolgreich. Ausgabe entspricht den Referenzen."
-            })
-        else:
-            reason = validation_result.split("Begründung:")[1].strip() if "Begründung:" in validation_result else "Unzureichende Begründung erhalten."
-            logger.warning(f"Validierung fehlgeschlagen: {reason}")
-            log.update({
-                "status": "failed",
-                "output": f"Validierung fehlgeschlagen: {reason}"
-            })
-
-    except Exception as e:
-        log.update({
-            "status": "failed",
-            "output": f"Fehler bei der Validierung: {str(e)}"
-        })
-        logger.error(f"[DEBUG] Fehler in ReferenceValidationAgent: {e}")
 
     return {"log": log}
 
@@ -1462,8 +1364,7 @@ def validate_summary(summary):
         prompt = f"""
         Zusammenfassung: {summary['Summary']}
 
-        Aufgabe: Überprüfe, ob diese Zusammenfassung die Hauptpunkte des Textes korrekt wiedergibt und
-        logisch aufgebaut ist. Bedenke das ist nur eine Grobe Validierung um zu schauen ob der Text eine korrekte Struktur hat. Antworte mit nur "Ja" oder "Nein" 
+        Aufgabe: Überprüfe, ob diese Zusammenfassung logisch sinn ergibt. Bedenke das ist nur eine Grobe Validierung um zu schauen ob der Text eine korrekte Struktur hat. Bedenke zu dem auch dass die Zusammenfassung nicht alle Chapters beinhaltet, es dient nur als eine ganz grobe Validierung deswegen sei nicht streng. Kleine Abweichungen sind erlaubt, nur wenn die Zusammenfassung unsinn ist dann Nein aber wenn es sinn macht dann Ja. Antworte mit nur "Ja" oder "Nein" 
         und gib eine Begründung, falls "Nein".
         """
         llm = OllamaLLM()

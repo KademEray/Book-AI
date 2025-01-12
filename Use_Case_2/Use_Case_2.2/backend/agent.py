@@ -628,7 +628,7 @@ def validation_agent(user_input, output):
     """
     agents = [
         validation_agent_content,
-        validation_agent_logic,
+        validation_agent_logic
     ]
     
     for agent in agents:
@@ -669,7 +669,7 @@ def validation_agent_content(user_input, output):
         Ausgabe:
         {output}
 
-        Antworte mit:
+        Sehr wichtig Antworte immer am Anfang mit:
         1. "Ja" oder "Nein", ob die Ausgabe inhaltlich korrekt ist.
         2. Begründung, warum die Ausgabe korrekt oder falsch ist.
         """
@@ -712,9 +712,9 @@ def validation_agent_logic(user_input, output):
         Ausgabe:
         {output}
 
-        Antworte mit:
-        1. "Ja" oder "Nein", ob die Ausgabe logisch konsistent ist.
-        2. Begründung, warum die Ausgabe konsistent oder inkonsistent ist.
+        Sehr wichtig Antworte immer am Anfang mit:
+        1. "Ja" oder "Nein", ob die Ausgabe inhaltlich korrekt ist.
+        2. Begründung, warum die Ausgabe korrekt oder falsch ist.
         """
         llm = OllamaLLM()
         validation_result = llm._call(prompt)
@@ -1319,8 +1319,7 @@ def validate_summary(summary):
         prompt = f"""
         Zusammenfassung: {summary['Summary']}
 
-        Aufgabe: Überprüfe, ob diese Zusammenfassung die Hauptpunkte des Textes korrekt wiedergibt und
-        logisch aufgebaut ist. Bedenke das ist nur eine Grobe Validierung um zu schauen ob der Text eine korrekte Struktur hat. Antworte mit nur "Ja" oder "Nein" 
+        Aufgabe: Überprüfe, ob diese Zusammenfassung logisch sinn ergibt. Bedenke das ist nur eine Grobe Validierung um zu schauen ob der Text eine korrekte Struktur hat. Bedenke zu dem auch dass die Zusammenfassung nicht alle Chapters beinhaltet, es dient nur als eine ganz grobe Validierung deswegen sei nicht streng. Kleine Abweichungen sind erlaubt, nur wenn die Zusammenfassung unsinn ist dann Nein aber wenn es sinn macht dann Ja. Antworte mit nur "Ja" oder "Nein" 
         und gib eine Begründung, falls "Nein".
         """
         llm = OllamaLLM()
