@@ -1,32 +1,21 @@
 # Book-AI
 
 ## Ausführung
-1. CPU
-```bash
-cd AI_CPU
-docker compose up -d
-```
+main.py
 
-1. GPU
-```bash
-cd AI_GPU
-docker compose up -d
-```
+Prompt:
 
-2.
-```bash
-cd Gradio
-docker-compose up
-```
-oder auf die gradio/app.py Datei und dann run drücken
+    "Schreibe eine Geschichte für ein illustriertes Kinderbuch, das Kinder ab 6 Jahren inspiriert und motiviert. Die Geschichte soll:
 
-Hinweis: 
-Bei Versionen Probleme erst einmal pip install Gradio, dann gradio starten.
-Danach pip install pydantic==1.10.19 und dann den Backend starten
+        Thema: Die Bedeutung von Respekt, Freundlichkeit und Würde im Umgang mit anderen.
+        Protagonist: Ein sympathisches Tier (z. B. ein kleiner Löwe, ein Vogel oder ein Hase), das ein Abenteuer erlebt, bei dem es durch seine Handlungen zeigt, wie wichtig Respekt und Freundlichkeit sind.
+               Ton und Stil: Die Sprache soll einfach und einprägsam sein, mit wiederholenden Elementen, die Kinder leicht merken oder nachsprechen können.
+        Handlung: Die Geschichte sollte eine klare Handlung mit einem Anfang, einem Höhepunkt und einer positiven Schlussbotschaft haben.
+        Botschaft: Vermittle, dass Respekt, Freundlichkeit und Hilfsbereitschaft nicht nur andere glücklich machen, sondern auch das Leben des Protagonisten verbessern.
 
-3. 
-```bash
-cd backend
-python backend.py
-```
-oder auf die Backend Datei und dann run drücken
+    Beispiel: 'Ein kleiner Hase hilft anderen Tieren im Wald, freundlich zu sein, und lernt, wie gegenseitige Unterstützung das Leben für alle schöner macht.'
+
+    Lass die Geschichte visuell ansprechend sein und beschreibe die Umgebung so, dass sie die Fantasie der Kinder anregt. Füge humorvolle oder spannende Elemente ein, um die Kinder zu fesseln, und beende die Geschichte mit einer klaren, motivierenden Moral."
+
+    Chapter: 0
+    SubChapter: 0

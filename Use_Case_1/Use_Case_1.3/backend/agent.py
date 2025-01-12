@@ -56,15 +56,24 @@ class AgentSystem:
             logger.debug("Starting synopsis_agent...")
             synopsis_result = synopsis_agent(user_input, context)
             logger.debug(f"synopsis_agent result: {synopsis_result}")
+
+            # Loggen der Ergebnisse des synopsis_agent
             response_data["steps"].append(synopsis_result["log"])
 
             if synopsis_result["log"]["status"] == "completed":
-                validated_synopsis = synopsis_result["output"]
-                # Speichere die validierte Synopsis
-                synopsis_id = self.store_context("Synopsis", validated_synopsis)
+                logger.debug("Validiere die Synopsis...")
+                validation_result = synopsis_validation_agent(user_input, synopsis_result["output"])
+
+                if validation_result["log"]["status"] == "completed":
+                    validated_synopsis = synopsis_result["output"]
+                    # Speichere die validierte Synopsis
+                    synopsis_id = self.store_context("Synopsis", validated_synopsis)
+                    logger.info(f"Validierte Synopsis gespeichert mit ID: {synopsis_id}")
+                else:
+                    logger.error(f"Validierung fehlgeschlagen: {validation_result['log']['output']}. Wiederhole...")
             else:
                 logger.error("Fehler beim Erstellen der Synopsis. Wiederhole...")
-
+                
         # Schritt 3: Kapitelstruktur-Agent
         validated_chapters = None
         while not validated_chapters:
@@ -563,6 +572,53 @@ def synopsis_agent(user_input, context):
     except Exception as e:
         log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
         return {"log": log, "output": f"Fehler: {str(e)}"}
+    
+def synopsis_validation_agent(user_input, output):
+    log = {"agent": "synopsis_validation_agent", "status": "processing"}
+    try:
+        logger.debug("[DEBUG] synopsis_validation_agent gestartet")
+        logger.debug(f"[DEBUG] Benutzerinput: {user_input}")
+        logger.debug(f"[DEBUG] Ausgabe zum Validieren: {output}")
+
+        prompt = f"""
+        Überprüfe die folgende Ausgabe darauf, ob sie als Synopsis gut ist.
+
+        Benutzeranfrage:
+        {user_input}
+
+        Ausgabe:
+        {output}
+
+        Antworte mit:
+        1. "Ja" oder "Nein", ob die Ausgabe inhaltlich korrekt ist.
+        2. Begründung, warum die Ausgabe korrekt oder falsch ist.
+        """
+        llm = OllamaLLM()
+        validation_result = llm._call(prompt)
+        logger.debug(f"[DEBUG] Validierungsergebnis von LLM: {validation_result}")
+
+        if "Ja" in validation_result:
+            logger.info("Validierung erfolgreich. Ausgabe ist inhaltlich korrekt.")
+            log.update({
+                "status": "completed",
+                "output": "Validierung erfolgreich. Ausgabe ist inhaltlich korrekt."
+            })
+        else:
+            reason = validation_result.split("Begründung:")[1].strip() if "Begründung:" in validation_result else "Unzureichende Begründung erhalten."
+            logger.warning(f"Validierung fehlgeschlagen: {reason}")
+            log.update({
+                "status": "failed",
+                "output": f"Validierung fehlgeschlagen: {reason}"
+            })
+
+    except Exception as e:
+        log.update({
+            "status": "failed",
+            "output": f"Fehler bei der Validierung: {str(e)}"
+        })
+        logger.error(f"[DEBUG] Fehler in synopsis_validation_agent: {e}")
+
+    return {"log": log}
 
 # Validierungs-Agent
 def validation_agent(user_input, output):

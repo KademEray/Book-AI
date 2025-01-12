@@ -72,13 +72,30 @@ def show_commands():
     print("  - `/search` für eine Suche")
     print("  - `/save` um den gesamten Chat zu speichern")
     print("  - `/clear` um Backend zu stoppen, Dateien zu löschen und neu zu starten")
-    print("  - `/help` zeigt diese Befehlsliste erneut an\n")
-    print("  - `/exit` um Backend zu stoppen und den Chat zu beenden")
+    print("  - `/help` zeigt diese Befehlsliste erneut an")
+    print("  - `/exit` um Backend zu stoppen und den Chat zu beenden\n")
 
 def chat():
+    try:
+        # Logdatei löschen
+        log_path = "./Use_Case_1/Use_Case_1.3/backend/backend.log"
+        if os.path.exists(log_path):
+            os.remove(log_path)
+            print(f"Logdatei {log_path} gelöscht.")
+
+        # Chroma Storage Ordner löschen
+        chroma_storage_path = "./Use_Case_1/Use_Case_1.3/backend/chroma_storage"
+        if os.path.exists(chroma_storage_path):
+            shutil.rmtree(chroma_storage_path)
+            print(f"Chroma Storage Ordner {chroma_storage_path} gelöscht.")
+
+    except Exception as e:
+        print(f"Fehler beim Bereinigen und Neustarten: {e}")
+
+    # Backend starten
     start_backend()
 
-    print("Willkommen zum Book-AI!")
+    print("\nWillkommen zum Book-AI!")
     show_commands()
 
     chat_history = []  # Liste zum Speichern des Chatverlaufs

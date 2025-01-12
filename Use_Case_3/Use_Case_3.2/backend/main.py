@@ -48,7 +48,7 @@ def start_backend():
     Startet das Backend.
     """
     print("Backend wird gestartet...")
-    backend_path = "./Use_Case_1/Use_Case_1.1/backend/backend.py"
+    backend_path = "./Use_Case_3/Use_Case_3.2/backend/backend.py"
     try:
         Popen(["python", backend_path], stdout=sys.stdout, stderr=sys.stderr)
         time.sleep(3)  # Kurz warten, bis das Backend hochgefahren ist
@@ -78,13 +78,13 @@ def show_commands():
 def chat():
     try:
         # Logdatei löschen
-        log_path = "./Use_Case_1/Use_Case_1.1/backend/backend.log"
+        log_path = "./Use_Case_3/Use_Case_3.2/backend/backend.log"
         if os.path.exists(log_path):
             os.remove(log_path)
             print(f"Logdatei {log_path} gelöscht.")
 
         # Chroma Storage Ordner löschen
-        chroma_storage_path = "./Use_Case_1/Use_Case_1.1/backend/chroma_storage"
+        chroma_storage_path = "./Use_Case_3/Use_Case_3.2/backend/chroma_storage"
         if os.path.exists(chroma_storage_path):
             shutil.rmtree(chroma_storage_path)
             print(f"Chroma Storage Ordner {chroma_storage_path} gelöscht.")
@@ -92,6 +92,7 @@ def chat():
     except Exception as e:
         print(f"Fehler beim Bereinigen und Neustarten: {e}")
 
+    # Backend starten
     start_backend()
 
     print("\nWillkommen zum Book-AI!")
@@ -154,13 +155,13 @@ def chat():
 
             try:
                 # Logdatei löschen
-                log_path = "./Use_Case_1/Use_Case_1.1/backend/backend.log"
+                log_path = "./Use_Case_3/Use_Case_3.2/backend/backend.log"
                 if os.path.exists(log_path):
                     os.remove(log_path)
                     print(f"Logdatei {log_path} gelöscht.")
 
                 # Chroma Storage Ordner löschen
-                chroma_storage_path = "./Use_Case_1/Use_Case_1.1/backend/chroma_storage"
+                chroma_storage_path = "./Use_Case_3/Use_Case_3.2/backend/chroma_storage"
                 if os.path.exists(chroma_storage_path):
                     shutil.rmtree(chroma_storage_path)
                     print(f"Chroma Storage Ordner {chroma_storage_path} gelöscht.")
@@ -181,13 +182,13 @@ def chat():
 
             try:
                 # Logdatei löschen
-                log_path = "./Use_Case_1/Use_Case_1.1/backend/backend.log"
+                log_path = "./Use_Case_3/Use_Case_3.2/backend/backend.log"
                 if os.path.exists(log_path):
                     os.remove(log_path)
                     print(f"Logdatei {log_path} gelöscht.")
 
                 # Chroma Storage Ordner löschen
-                chroma_storage_path = "./Use_Case_1/Use_Case_1.1/backend/chroma_storage"
+                chroma_storage_path = "./Use_Case_3/Use_Case_3.2/backend/chroma_storage"
                 if os.path.exists(chroma_storage_path):
                     shutil.rmtree(chroma_storage_path)
                     print(f"Chroma Storage Ordner {chroma_storage_path} gelöscht.")
