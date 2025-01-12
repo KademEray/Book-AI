@@ -1,23 +1,25 @@
-from flask import Flask, request, jsonify
+from datetime import datetime
 import json
+import logging
+import os
+import re
+import uuid
+
 from chromadb import PersistentClient
 import requests
-from datetime import datetime
-import re
-import logging
-import uuid
-from duckduckgo_search import DDGS
+
+from ollama import OllamaLLM
 
 
 logging.basicConfig(
-    filename='backend/backend.log',
+    filename='Use_Case_1/Use_Case_1.2/backend/backend.log',
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     encoding='utf-8'
 )
 
 # Initialisiere Chroma mit persistentem Speicher
-client = PersistentClient(path="./chroma_storage")
+client = PersistentClient(path="./Use_Case_1/Use_Case_1.2/backend/chroma_storage")
 
 # Erstelle oder erhalte eine Sammlung (Collection)
 vectorstore = client.get_or_create_collection(
@@ -25,34 +27,6 @@ vectorstore = client.get_or_create_collection(
 )
 logger = logging.getLogger(__name__)
 
-# Flask-Setup
-app = Flask(__name__)
-
-class OllamaLLM:
-    """Wrapper für Ollama LLM."""
-    def _call(self, prompt):
-        try:
-            # POST-Anfrage an den LM Studio Chat Completions Endpunkt
-            response = requests.post(
-                "http://127.0.0.1:1234/v1/chat/completions",  # API-Endpunkt
-                json={
-                    "model": "llama-3.2-3b-instruct:2",  # Modellname
-                    "messages": [
-                        { "role": "system", "content": "Gebe eine Antwort zu dem Prompt von dem User ohne weitere Hinweise, Informationen, Kontext oder sonstiges sondern nur zu dem Prompt antworten" },  # Systemrolle mit Anweisung
-                        { "role": "user", "content": prompt }  # Benutzerrolle mit Eingabe
-                    ],
-                    "temperature": 0.7,  # Einstellbare Temperatur
-                    "max_tokens": -1,  # Keine Begrenzung der Tokens
-                    "stream": False  # Setze auf False, wenn die gesamte Antwort abgewartet werden soll
-                },
-                timeout=800  # Timeout in Sekunden
-            )
-            response.raise_for_status()  # Überprüft auf HTTP-Fehler
-            # Extrahiere die Antwort aus der JSON-Antwort
-            return response.json().get("choices", [{}])[0].get("message", {}).get("content", "Fehler: Keine Antwort erhalten.")
-        except requests.exceptions.RequestException as e:
-            return f"Fehler bei der Verbindung zu LM Studio: {str(e)}"
-        
 class AgentSystem:
     def __init__(self):
         self.agents = []
@@ -82,15 +56,24 @@ class AgentSystem:
             logger.debug("Starting synopsis_agent...")
             synopsis_result = synopsis_agent(user_input, context)
             logger.debug(f"synopsis_agent result: {synopsis_result}")
+
+            # Loggen der Ergebnisse des synopsis_agent
             response_data["steps"].append(synopsis_result["log"])
 
             if synopsis_result["log"]["status"] == "completed":
-                validated_synopsis = synopsis_result["output"]
-                # Speichere die validierte Synopsis
-                synopsis_id = self.store_context("Synopsis", validated_synopsis)
+                logger.debug("Validiere die Synopsis...")
+                validation_result = synopsis_validation_agent(user_input, synopsis_result["output"])
+
+                if validation_result["log"]["status"] == "completed":
+                    validated_synopsis = synopsis_result["output"]
+                    # Speichere die validierte Synopsis
+                    synopsis_id = self.store_context("Synopsis", validated_synopsis)
+                    logger.info(f"Validierte Synopsis gespeichert mit ID: {synopsis_id}")
+                else:
+                    logger.error(f"Validierung fehlgeschlagen: {validation_result['log']['output']}. Wiederhole...")
             else:
                 logger.error("Fehler beim Erstellen der Synopsis. Wiederhole...")
-
+                
         # Schritt 3: Kapitelstruktur-Agent
         validated_chapters = None
         while not validated_chapters:
@@ -111,68 +94,85 @@ class AgentSystem:
                     logger.error("Kapitelvalidierung fehlgeschlagen. Wiederhole...")
             else:
                 logger.error("chapter_agent did not complete, retrying...")
+        
+        while True:
+            # Schritt 4: Schreiben der Kapitel
+            final_text = None
+            while not final_text:
+                logger.debug("Starting writing_agent...")
+                writing_result = writing_agent(user_input, validated_chapters)
+                logger.debug(f"writing_agent result: {writing_result}")
+                response_data["steps"].append(writing_result["log"])
 
-        # Schritt 4: Schreiben der Kapitel
-        final_text = None
-        while not final_text:
-            logger.debug("Starting writing_agent...")
-            writing_result = writing_agent(user_input, validated_chapters)
-            logger.debug(f"writing_agent result: {writing_result}")
-            response_data["steps"].append(writing_result["log"])
+                if writing_result["log"]["status"] == "completed":
+                    final_text = writing_result["output"]
+                    # Speichere die Ergebnisse des Schreib-Agenten
+                    self.store_context("Final Text", final_text)
+                else:
+                    logger.error("Writing failed, retrying...")
 
-            if writing_result["log"]["status"] == "completed":
-                final_text = writing_result["output"]
-                # Speichere die Ergebnisse des Schreib-Agenten
-                final_text_id = self.store_context("Final Text", final_text)
+            # Schritt 5: Erstellung und Validierung der Gesamtszusammenfassung
+            summary = generate_summary(final_text=final_text)  # Gesamter Text wird übergeben
+            logger.debug("Validiere Zusammenfassung...")
+            validation_result = validate_summary(summary)
+
+            if validation_result.get("Validated", False):
+                logger.info("Zusammenfassung erfolgreich validiert.")
+                self.store_context("Validated Summary", validation_result)
+                break  # Beende die äußere Schleife, da alles erfolgreich abgeschlossen ist
             else:
-                logger.error("Writing failed, retrying...")
-                
-        # Schritt 5: Erstellung und Validierung der Zusammenfassungen
-        summaries = self.generate_summary(validated_chapters)
-        validated_summaries = None
-
-        while not validated_summaries:
-            logger.debug("Validiere Zusammenfassungen...")
-            validation_result = self.validate_summary(summaries)
-
-            # Überprüfe, ob alle Zusammenfassungen validiert wurden
-            if all(summary.get("Validated", False) for summary in validation_result):
-                validated_summaries = validation_result
-                logger.info("Alle Zusammenfassungen erfolgreich validiert.")
-                self.store_context("Validated Summaries", validated_summaries)
-            else:
-                logger.warning("Eine oder mehrere Zusammenfassungen sind fehlerhaft. Wiederhole...")
-                summaries = [
-                    {
-                        "Chapter": summary["Chapter"],
-                        "Summary": summary["Summary"]
-                    }
-                    for summary in validation_result
-                    if not summary.get("Validated", False)
-                ]
+                logger.warning("Zusammenfassung ist fehlerhaft. Wiederhole den gesamten Schreibprozess...")
+                final_text = None  # Setze den final_text zurück, um den Schreibprozess erneut zu starten
                 
         # Schritt 6: Buch bewerten
         logger.debug("Starte Buchbewertung...")
-        weighted_scores = []
+        weighted_scores_with_details = []
 
-        # Bewertung durch Agenten
-        weighted_scores.append(evaluate_chapters(validated_chapters)["output"])
-        weighted_scores.append(evaluate_paragraphs(validated_chapters)["output"])
-        weighted_scores.append(evaluate_book_type(validated_chapters)["output"])
-        weighted_scores.append(evaluate_content(validated_chapters)["output"])
-        weighted_scores.append(evaluate_grammar(validated_chapters)["output"])
-        weighted_scores.append(evaluate_style(validated_chapters)["output"])
-        weighted_scores.append(evaluate_tension(validated_chapters)["output"])
+        agents = [
+            evaluate_chapters,
+            evaluate_paragraphs,
+            evaluate_book_type,
+            evaluate_content,
+            evaluate_grammar,
+            evaluate_style,
+            evaluate_tension
+        ]
+
+        for agent in agents:
+            result = agent(final_text)
+            weighted_scores_with_details.append(result)
+
+        # Extrahiere die Scores und Details
+        scores = [entry["output"] for entry in weighted_scores_with_details]
+        details = [entry["log"] for entry in weighted_scores_with_details]
 
         # Endnote berechnen
-        final_evaluation = calculate_final_score(weighted_scores)
-        response_data["evaluation"] = final_evaluation
+        final_evaluation = calculate_final_score(scores)
         logger.info(f"Buchbewertung abgeschlossen: {final_evaluation}")
-        
-        # Finales Ergebnis zurückgeben
-        #response_data["final_response"] = final_text
-        #logger.debug(f"All agents completed. Returning response_data: {response_data}")
-        #return response_data
+
+        # **Kombiniere die finalen Ergebnisse**
+        response_data["evaluation"] = {
+            "final_grade": final_evaluation,
+            "detailed_results": details,
+            "final_text": final_text  # Finaler Text enthält bereits Quellen und Titel
+        }
+
+        save_evaluation_to_txt(response_data)
+        logger.info("Buchbewertung erfolgreich gespeichert.")
+
+        terminal_output = {
+            "final_grade": final_evaluation,
+            "detailed_results": details
+        }
+
+        # Validierung vor Rückgabe
+        if not terminal_output.get("final_grade") or not terminal_output.get("detailed_results"):
+            logger.error(f"Fehler in terminal_output: {terminal_output}")
+            raise ValueError("terminal_output ist unvollständig.")
+
+        logger.debug(f"All agents completed. Returning terminal_output: {terminal_output}")
+        return terminal_output
+
 
 
     def get_next_document_id(self):
@@ -239,7 +239,89 @@ class AgentSystem:
         except Exception as e:
             logger.error(f"Fehler bei der Validierung gespeicherter Daten: {e}")
             return []
-        
+
+def sanitize_filename(filename):
+    """
+    Entfernt ungültige Zeichen aus einem Dateinamen.
+    """
+    return re.sub(r'[<>:"/\\|?*]', '', filename).strip()
+
+def get_next_book_name(output_dir):
+    """
+    Findet den nächsten verfügbaren Buchnamen im Format 'book_x', wobei x eine fortlaufende Zahl ist.
+    """
+    existing_files = os.listdir(output_dir)
+    book_numbers = [
+        int(re.search(r'book_(\d+)', file).group(1))
+        for file in existing_files if re.match(r'book_\d+\.txt', file)
+    ]
+    next_number = max(book_numbers, default=0) + 1
+    return f"book_{next_number}"
+
+def save_evaluation_to_txt(response_data):
+    """
+    Speichert die Buchbewertung in einer strukturierten .txt-Datei im Ordner "Ergebnisse".
+    """
+    try:
+        # Ordner erstellen, falls nicht vorhanden
+        output_dir = "Use_Case_1/Use_Case_1.2/Ergebnisse"
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Buchname bestimmen
+        book_name = get_next_book_name(output_dir)
+
+        # Datei-Pfad
+        output_file = os.path.join(output_dir, f"{book_name}.txt")
+
+        # Validierung der response_data Struktur
+        if not response_data.get("evaluation"):
+            raise ValueError("Fehlender 'evaluation'-Schlüssel in response_data.")
+
+        if not response_data["evaluation"].get("final_grade"):
+            raise ValueError("Fehlender 'final_grade'-Schlüssel in response_data['evaluation'].")
+
+        if not response_data["evaluation"].get("detailed_results"):
+            raise ValueError("Fehlender 'detailed_results'-Schlüssel in response_data['evaluation'].")
+
+        if not response_data["evaluation"].get("final_text"):
+            raise ValueError("Fehlender 'final_text'-Schlüssel in response_data['evaluation'].")
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            # Final Grade
+            final_grade = response_data["evaluation"]["final_grade"]
+            f.write("Finale Bewertung:\n")
+            f.write(f"Score: {final_grade['score']}\n")
+            f.write(f"Grade: {final_grade['grade']}\n\n")
+
+            # Detailed Results
+            f.write("Detaillierte Ergebnisse:\n")
+            for result in response_data["evaluation"]["detailed_results"]:
+                f.write(f"Agent: {result['agent']}\n")
+                f.write(f"Erklärung: {result['explanation']}\n")
+                f.write(f"Bewertung: {result['output']}\n\n")
+
+            # Inhaltsverzeichnis
+            final_text = response_data["evaluation"]["final_text"]
+            f.write("Inhaltsverzeichnis:\n")
+            for chapter in final_text["Chapters"]:
+                f.write(f"Kapitel {chapter['Number']}: {chapter['Title']}\n")
+                for subchapter in chapter["Subchapters"]:
+                    f.write(f"  {subchapter['Number']}: {subchapter['Title']}\n")
+            f.write("\n")
+
+            # Finaler Text
+            f.write("Finaler Text:\n")
+            for chapter in final_text["Chapters"]:
+                f.write(f"Kapitel {chapter['Number']}: {chapter['Title']}\n")
+                for subchapter in chapter["Subchapters"]:
+                    f.write(f"  {subchapter['Number']}: {subchapter['Title']}\n")
+                    f.write(f"  Inhalt:\n{subchapter['Content']}\n\n")
+
+        logger.debug(f"Die Buchbewertung wurde erfolgreich in {output_file} gespeichert.")
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern der Buchbewertung: {e}")
+        raise
+
 def decision_agent(context, input_text, task_type="Synopsis"):
     """
     Entscheidet, ob eine Internetsuche erforderlich ist und führt bei Bedarf eine Suchanfrage aus.
@@ -250,6 +332,7 @@ def decision_agent(context, input_text, task_type="Synopsis"):
     :return: Ein Dictionary mit Log und Ergebnis ("Ja" oder "Nein") sowie optional der Suchanfrage.
     """
     log = {"agent": "DecisionAgent", "status": "running", "details": []}
+
     try:
         # Unterschiedliche Anweisungen basierend auf task_type
         task_instruction = {
@@ -290,7 +373,7 @@ def decision_agent(context, input_text, task_type="Synopsis"):
             return {
                 "log": log,
                 "output": "Ja",
-                "search_query": search_query_result.get("search_query", "Keine Suchanfrage generiert.")
+                "search_query": search_query_result.get("search_query", "Keine Suchanfrage generiert."),
             }
         elif response == "nein":
             log.update({"status": "completed", "output": "Nein"})
@@ -489,6 +572,53 @@ def synopsis_agent(user_input, context):
     except Exception as e:
         log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
         return {"log": log, "output": f"Fehler: {str(e)}"}
+    
+def synopsis_validation_agent(user_input, output):
+    log = {"agent": "synopsis_validation_agent", "status": "processing"}
+    try:
+        logger.debug("[DEBUG] synopsis_validation_agent gestartet")
+        logger.debug(f"[DEBUG] Benutzerinput: {user_input}")
+        logger.debug(f"[DEBUG] Ausgabe zum Validieren: {output}")
+
+        prompt = f"""
+        Überprüfe die folgende Ausgabe darauf, ob sie als Synopsis gut ist.
+
+        Benutzeranfrage:
+        {user_input}
+
+        Ausgabe:
+        {output}
+
+        Antworte mit:
+        1. "Ja" oder "Nein", ob die Ausgabe inhaltlich korrekt ist.
+        2. Begründung, warum die Ausgabe korrekt oder falsch ist.
+        """
+        llm = OllamaLLM()
+        validation_result = llm._call(prompt)
+        logger.debug(f"[DEBUG] Validierungsergebnis von LLM: {validation_result}")
+
+        if "Ja" in validation_result:
+            logger.info("Validierung erfolgreich. Ausgabe ist inhaltlich korrekt.")
+            log.update({
+                "status": "completed",
+                "output": "Validierung erfolgreich. Ausgabe ist inhaltlich korrekt."
+            })
+        else:
+            reason = validation_result.split("Begründung:")[1].strip() if "Begründung:" in validation_result else "Unzureichende Begründung erhalten."
+            logger.warning(f"Validierung fehlgeschlagen: {reason}")
+            log.update({
+                "status": "failed",
+                "output": f"Validierung fehlgeschlagen: {reason}"
+            })
+
+    except Exception as e:
+        log.update({
+            "status": "failed",
+            "output": f"Fehler bei der Validierung: {str(e)}"
+        })
+        logger.error(f"[DEBUG] Fehler in synopsis_validation_agent: {e}")
+
+    return {"log": log}
 
 # Validierungs-Agent
 def validation_agent(user_input, output):
@@ -1095,845 +1225,313 @@ def writing_agent(user_input, validated_chapters):
         logger.error(f"[DEBUG] Fehler in WritingAgent: {e}")
         return {"log": log, "output": {}}
     
-def generate_summary(self, chapters):
-    """Erstellt eine Zusammenfassung für jedes Kapitel."""
-    summaries = []
-    for chapter in chapters.get("Chapters", []):
-        try:
-            prompt = f"""
-            Kapitel: {chapter['Title']}
+def generate_summary(final_text):
+    """Erstellt eine Zusammenfassung des gesamten Textes."""
+    try:
+        prompt = f"""
+        Aufgabe: Erstelle eine prägnante Zusammenfassung des gesamten Textes.
+        Die Zusammenfassung sollte eine logische Reihenfolge haben und die Hauptpunkte aus jedem Kapitel abdecken, ohne Details auszulassen.
 
-            Aufgabe: Erstelle eine prägnante Zusammenfassung des Kapitels.
-            Fokussiere dich auf die Hauptpunkte und fasse den Inhalt in wenigen Sätzen zusammen.
-            """
-            llm = OllamaLLM()
-            summary = llm._call(prompt).strip()
-            summaries.append({"Chapter": chapter["Title"], "Summary": summary})
-        except Exception as e:
-            logger.error(f"Fehler bei der Erstellung der Zusammenfassung für Kapitel {chapter['Title']}: {e}")
-            summaries.append({"Chapter": chapter["Title"], "Summary": f"Fehler: {str(e)}"})
-    return summaries
+        Text:
+        {final_text}
+        """
+        llm = OllamaLLM()
+        summary = llm._call(prompt).strip()
+        return {"Summary": summary}
+    except Exception as e:
+        logger.error(f"Fehler bei der Erstellung der Zusammenfassung: {e}")
+        return {"Summary": f"Fehler: {str(e)}"}
 
-def validate_summary(self, summaries):
-    """Validiert die erstellten Zusammenfassungen."""
-    validated_summaries = []
-    for summary in summaries:
-        try:
-            prompt = f"""
-            Zusammenfassung: {summary['Summary']}
+def validate_summary(summary):
+    """Validiert die erstellte Gesamtszusammenfassung."""
+    try:
+        prompt = f"""
+        Zusammenfassung: {summary['Summary']}
 
-            Aufgabe: Überprüfe, ob diese Zusammenfassung korrekt, präzise und konsistent mit dem Kapitel ist.
-            Antworte mit "Ja" oder "Nein" und einer kurzen Begründung.
-            """
-            llm = OllamaLLM()
-            validation_result = llm._call(prompt).strip()
-            if validation_result.startswith("Ja"):
-                validated_summaries.append({"Chapter": summary["Chapter"], "Summary": summary["Summary"], "Validated": True})
-            else:
-                logger.warning(f"Zusammenfassung für Kapitel {summary['Chapter']} nicht validiert: {validation_result}")
-                validated_summaries.append({"Chapter": summary["Chapter"], "Summary": summary["Summary"], "Validated": False, "Reason": validation_result})
-        except Exception as e:
-            logger.error(f"Fehler bei der Validierung der Zusammenfassung für Kapitel {summary['Chapter']}: {e}")
-            validated_summaries.append({"Chapter": summary["Chapter"], "Summary": summary["Summary"], "Validated": False, "Reason": f"Fehler: {str(e)}"})
-    return validated_summaries
+        Aufgabe: Überprüfe, ob diese Zusammenfassung die Hauptpunkte des Textes korrekt wiedergibt,
+        logisch aufgebaut ist. Bedenke das ist nur eine Grobe Validierung um zu schauen ob der Text eine korrekte Struktur hat. Antworte mit nur "Ja" oder "Nein" 
+        und gib eine Begründung, falls "Nein".
+        """
+        llm = OllamaLLM()
+        validation_result = llm._call(prompt).strip()
+        if validation_result.startswith("Ja"):
+            return {"Summary": summary["Summary"], "Validated": True}
+        else:
+            logger.warning(f"Zusammenfassung nicht validiert: {validation_result}")
+            # Speichere die fehlerhafte Zusammenfassung und die Validierungsantwort
+            agent_system.store_context(
+                "Failed Summary Validation",
+                {
+                    "Summary": summary["Summary"],
+                    "Validation Feedback": validation_result,
+                },
+            )
+            return {
+                "Summary": summary["Summary"],
+                "Validated": False,
+                "Reason": validation_result,
+            }
+    except Exception as e:
+        logger.error(f"Fehler bei der Validierung der Zusammenfassung: {e}")
+        # Speichere die fehlerhafte Zusammenfassung und die Fehlermeldung
+        agent_system.store_context(
+            "Failed Summary Validation",
+            {
+                "Summary": summary["Summary"],
+                "Error": f"Fehler: {str(e)}",
+            },
+        )
+        return {
+            "Summary": summary["Summary"],
+            "Validated": False,
+            "Reason": f"Fehler: {str(e)}",
+        }
 
-# Gewichtung der Buchbewertung
-
-def evaluate_chapters(validated_chapters):
+def evaluate_chapters(final_text):
+    """
+    Bewertet die Kapitel basierend auf Struktur, Konsistenz und Übergängen.
+    """
     log = {"agent": "ChapterEvaluationAgent", "status": "running", "details": []}
-    total_score = 0
-    max_score = 100
-    sub_weight_count = 5
-    max_points_per_sub = max_score / sub_weight_count
-
     try:
-        # Konsistenz
-        consistency_score = evaluate_consistency(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Konsistenz", "score": consistency_score})
-        total_score += consistency_score
+        prompt = f"""
+        Aufgabe: Bewerte die Kapitel des Buches basierend auf ihrer Struktur, Konsistenz und den Übergängen.
+        Text:
+        {final_text}
 
-        # Länge
-        length_score = evaluate_length(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Länge", "score": length_score})
-        total_score += length_score
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
+        """
+        llm = OllamaLLM()
+        response = llm._call(prompt).strip()
 
-        # Zusammenfassungen
-        summary_score = evaluate_summaries(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Kapitelzusammenfassungen", "score": summary_score})
-        total_score += summary_score
+        # Extrahiere die erste Zahl und den Rest des Textes
+        match = re.search(r'\b(\d+)\b', response)
+        if match:
+            score = int(match.group(1))
+            explanation = response[match.end():].strip()
+            log.update({
+                "status": "completed",
+                "output": min(max(score, 0), 100),
+                "explanation": explanation
+            })
+        else:
+            raise ValueError("Keine Zahl in der Antwort gefunden.")
 
-        # Übergänge
-        transitions_score = evaluate_transitions(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Übergänge", "score": transitions_score})
-        total_score += transitions_score
-
-        # Relevanz
-        relevance_score = evaluate_relevance(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Relevanz", "score": relevance_score})
-        total_score += relevance_score
-
-        log.update({"status": "completed", "output": total_score})
-        return {"log": log, "output": total_score}
+        return {"log": log, "output": log["output"], "explanation": log["explanation"]}
     except Exception as e:
-        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
-        return {"log": log, "output": 0}
-        
-        
-def evaluate_paragraphs(validated_chapters):
+        log.update({"status": "failed", "output": 0, "error": str(e)})
+        return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
+
+def evaluate_paragraphs(final_text):
+    """
+    Bewertet die Absätze hinsichtlich Lesefluss, Fokus und Verknüpfung.
+    """
     log = {"agent": "ParagraphEvaluationAgent", "status": "running", "details": []}
-    total_score = 0
-    max_score = 100
-    sub_weight_count = 4
-    max_points_per_sub = max_score / sub_weight_count
-
     try:
-        # Fokus
-        focus_score = evaluate_focus(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Fokus", "score": focus_score})
-        total_score += focus_score
+        prompt = f"""
+        Aufgabe: Bewerte die Absätze des Buches basierend auf ihrem Lesefluss, Fokus und logischer Verknüpfung.
+        Text:
+        {final_text}
 
-        # Verknüpfung
-        linkage_score = evaluate_linkage(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Verknüpfung", "score": linkage_score})
-        total_score += linkage_score
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
+        """
+        llm = OllamaLLM()
+        response = llm._call(prompt).strip()
 
-        # Lesefluss
-        flow_score = evaluate_flow(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Lesefluss", "score": flow_score})
-        total_score += flow_score
+        # Extrahiere die erste Zahl und den Rest des Textes
+        match = re.search(r'\b(\d+)\b', response)
+        if match:
+            score = int(match.group(1))
+            explanation = response[match.end():].strip()
+            log.update({
+                "status": "completed",
+                "output": min(max(score, 0), 100),
+                "explanation": explanation
+            })
+        else:
+            raise ValueError("Keine Zahl in der Antwort gefunden.")
 
-        # Länge
-        length_score = evaluate_paragraph_length(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Länge", "score": length_score})
-        total_score += length_score
-
-        log.update({"status": "completed", "output": total_score})
-        return {"log": log, "output": total_score}
+        return {"log": log, "output": log["output"], "explanation": log["explanation"]}
     except Exception as e:
-        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
-        return {"log": log, "output": 0}
-        
-def evaluate_book_type(validated_chapters):
+        log.update({"status": "failed", "output": 0, "error": str(e)})
+        return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
+
+def evaluate_book_type(final_text):
+    """
+    Bewertet die Buchart in Bezug auf Zielgruppe und Thema.
+    """
     log = {"agent": "BookTypeEvaluationAgent", "status": "running", "details": []}
-    total_score = 0
-    max_score = 100
-    sub_weight_count = 3
-    max_points_per_sub = max_score / sub_weight_count
-
     try:
-        # Zielgruppe
-        audience_score = evaluate_audience(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Zielgruppe", "score": audience_score})
-        total_score += audience_score
+        prompt = f"""
+        Aufgabe: Bewerte die Buchart basierend auf ihrer Eignung für Zielgruppe und Thema.
+        Text:
+        {final_text}
 
-        # Formateignung
-        format_score = evaluate_format(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Formateignung", "score": format_score})
-        total_score += format_score
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
+        """
+        llm = OllamaLLM()
+        response = llm._call(prompt).strip()
 
-        # Innovativität
-        innovation_score = evaluate_innovation(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Innovativität", "score": innovation_score})
-        total_score += innovation_score
+        # Extrahiere die erste Zahl und die Erklärung
+        match = re.search(r'\b(\d+)\b', response)
+        if match:
+            score = int(match.group(1))
+            explanation = response[match.end():].strip()
+            log.update({
+                "status": "completed",
+                "output": min(max(score, 0), 100),
+                "explanation": explanation
+            })
+        else:
+            raise ValueError("Keine Zahl in der Antwort gefunden.")
 
-        log.update({"status": "completed", "output": total_score})
-        return {"log": log, "output": total_score}
+        return {"log": log, "output": log["output"], "explanation": log["explanation"]}
     except Exception as e:
-        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
-        return {"log": log, "output": 0}
+        log.update({"status": "failed", "output": 0, "error": str(e)})
+        return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
 
-
-def evaluate_content(validated_chapters):
+def evaluate_content(final_text):
+    """
+    Bewertet den Inhalt basierend auf Tiefe, Relevanz und Fokus auf das Thema.
+    """
     log = {"agent": "ContentEvaluationAgent", "status": "running", "details": []}
-    total_score = 0
-    max_score = 100
-    sub_weight_count = 4
-    max_points_per_sub = max_score / sub_weight_count
-
     try:
-        # Tiefe der Recherche
-        research_score = evaluate_research(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Tiefe der Recherche", "score": research_score})
-        total_score += research_score
+        prompt = f"""
+        Aufgabe: Bewerte den Inhalt des Buches basierend auf Tiefe, Relevanz und Fokus auf das Thema.
+        Text:
+        {final_text}
 
-        # Fokus
-        focus_score = evaluate_focus_on_topic(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Fokus", "score": focus_score})
-        total_score += focus_score
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
+        """
+        llm = OllamaLLM()
+        response = llm._call(prompt).strip()
 
-        # Aktualität
-        timeliness_score = evaluate_timeliness(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Aktualität", "score": timeliness_score})
-        total_score += timeliness_score
+        # Extrahiere die erste Zahl und die Erklärung
+        match = re.search(r'\b(\d+)\b', response)
+        if match:
+            score = int(match.group(1))
+            explanation = response[match.end():].strip()
+            log.update({
+                "status": "completed",
+                "output": min(max(score, 0), 100),
+                "explanation": explanation
+            })
+        else:
+            raise ValueError("Keine Zahl in der Antwort gefunden.")
 
-        # Breite des Inhalts
-        breadth_score = evaluate_breadth(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Breite des Inhalts", "score": breadth_score})
-        total_score += breadth_score
-
-        log.update({"status": "completed", "output": total_score})
-        return {"log": log, "output": total_score}
+        return {"log": log, "output": log["output"], "explanation": log["explanation"]}
     except Exception as e:
-        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
-        return {"log": log, "output": 0}
+        log.update({"status": "failed", "output": 0, "error": str(e)})
+        return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
 
-
-def evaluate_grammar(validated_chapters):
+def evaluate_grammar(final_text):
+    """
+    Bewertet Grammatik und Rechtschreibung.
+    """
     log = {"agent": "GrammarEvaluationAgent", "status": "running", "details": []}
-    total_score = 0
-    max_score = 50
-    sub_weight_count = 2
-    max_points_per_sub = max_score / sub_weight_count
-
     try:
-        # Einheitlichkeit
-        consistency_score = evaluate_grammar_consistency(validated_chapters)
-        log["details"].append({"criteria": "Einheitlichkeit", "score": consistency_score})
-        total_score += consistency_score
+        prompt = f"""
+        Aufgabe: Bewerte die Grammatik und Rechtschreibung des Buches.
+        Text:
+        {final_text}
 
-        # Qualität der Überarbeitung
-        revision_score = evaluate_revision_quality(validated_chapters)
-        log["details"].append({"criteria": "Qualität der Überarbeitung", "score": revision_score})
-        total_score += revision_score
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
+        """
+        llm = OllamaLLM()
+        response = llm._call(prompt).strip()
 
-        log.update({"status": "completed", "output": total_score})
-        return {"log": log, "output": total_score}
+        # Extrahiere die erste Zahl und die Erklärung
+        match = re.search(r'\b(\d+)\b', response)
+        if match:
+            score = int(match.group(1))
+            explanation = response[match.end():].strip()
+            log.update({
+                "status": "completed",
+                "output": min(max(score, 0), 100),
+                "explanation": explanation
+            })
+        else:
+            raise ValueError("Keine Zahl in der Antwort gefunden.")
+
+        return {"log": log, "output": log["output"], "explanation": log["explanation"]}
     except Exception as e:
-        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
-        return {"log": log, "output": 0}
+        log.update({"status": "failed", "output": 0, "error": str(e)})
+        return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
 
-
-def evaluate_style(validated_chapters):
+def evaluate_style(final_text):
+    """
+    Bewertet den Schreibstil hinsichtlich Abwechslung, Tonalität und Authentizität.
+    """
     log = {"agent": "StyleEvaluationAgent", "status": "running", "details": []}
-    total_score = 0
-    max_score = 100
-    sub_weight_count = 4
-    max_points_per_sub = max_score / sub_weight_count
-
     try:
-        # Tonalität
-        tone_score = evaluate_tone(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Tonalität", "score": tone_score})
-        total_score += tone_score
+        prompt = f"""
+        Aufgabe: Bewerte den Schreibstil des Buches basierend auf Abwechslung, Tonalität und Authentizität.
+        Text:
+        {final_text}
 
-        # Abwechslung
-        variety_score = evaluate_variety(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Abwechslung", "score": variety_score})
-        total_score += variety_score
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
+        """
+        llm = OllamaLLM()
+        response = llm._call(prompt).strip()
 
-        # Sprachbilder
-        imagery_score = evaluate_imagery(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Sprachbilder", "score": imagery_score})
-        total_score += imagery_score
+        # Extrahiere die erste Zahl und die Erklärung
+        match = re.search(r'\b(\d+)\b', response)
+        if match:
+            score = int(match.group(1))
+            explanation = response[match.end():].strip()
+            log.update({
+                "status": "completed",
+                "output": min(max(score, 0), 100),
+                "explanation": explanation
+            })
+        else:
+            raise ValueError("Keine Zahl in der Antwort gefunden.")
 
-        # Authentizität
-        authenticity_score = evaluate_authenticity(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Authentizität", "score": authenticity_score})
-        total_score += authenticity_score
-
-        log.update({"status": "completed", "output": total_score})
-        return {"log": log, "output": total_score}
+        return {"log": log, "output": log["output"], "explanation": log["explanation"]}
     except Exception as e:
-        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
-        return {"log": log, "output": 0}
-        
+        log.update({"status": "failed", "output": 0, "error": str(e)})
+        return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
 
-#WENN ES EIN ROMAN IST IST DAS SINNVOLL !!!!
-def evaluate_tension(validated_chapters):
+def evaluate_tension(final_text):
+    """
+    Bewertet die Spannung des Buches basierend auf Wendepunkten, Aufbau und Charakterentwicklung.
+    """
     log = {"agent": "TensionEvaluationAgent", "status": "running", "details": []}
-    total_score = 0
-    max_score = 100
-    sub_weight_count = 4
-    max_points_per_sub = max_score / sub_weight_count
-
     try:
-        # Aufbau
-        buildup_score = evaluate_buildup(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Aufbau", "score": buildup_score})
-        total_score += buildup_score
+        prompt = f"""
+        Aufgabe: Bewerte die Spannung des Buches basierend auf Wendepunkten, Aufbau und Charakterentwicklung.
+        Text:
+        {final_text}
 
-        # Wendepunkte
-        twists_score = evaluate_twists(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Wendepunkte", "score": twists_score})
-        total_score += twists_score
-
-        # Charakterentwicklung
-        character_dev_score = evaluate_character_development(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Charakterentwicklung", "score": character_dev_score})
-        total_score += character_dev_score
-
-        # Cliffhanger
-        cliffhanger_score = evaluate_cliffhangers(validated_chapters) * max_points_per_sub
-        log["details"].append({"criteria": "Cliffhanger", "score": cliffhanger_score})
-        total_score += cliffhanger_score
-
-        log.update({"status": "completed", "output": total_score})
-        return {"log": log, "output": total_score}
-    except Exception as e:
-        log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
-        return {"log": log, "output": 0}
-    
-# Untergewichtungen Funktionen
-
-def evaluate_consistency(validated_chapters):
-    """
-    Bewertet die Konsistenz der Kapitel mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 20.
-    """
-    try:
-        prompt = """
-        Überprüfe die Konsistenz der Kapitel in Bezug auf logische Verbindungen und inhaltliche Stimmigkeit.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
         llm = OllamaLLM()
         response = llm._call(prompt).strip()
-        score = int(response)  # Die KI gibt eine Punktzahl zurück
-        return min(max(score, 0), 20)  # Sicherstellen, dass der Wert zwischen 0 und 20 liegt
+
+        # Extrahiere die erste Zahl und die Erklärung
+        match = re.search(r'\b(\d+)\b', response)
+        if match:
+            score = int(match.group(1))
+            explanation = response[match.end():].strip()
+            log.update({
+                "status": "completed",
+                "output": min(max(score, 0), 100),
+                "explanation": explanation
+            })
+        else:
+            raise ValueError("Keine Zahl in der Antwort gefunden.")
+
+        return {"log": log, "output": log["output"], "explanation": log["explanation"]}
     except Exception as e:
-        logger.error(f"Fehler bei der Konsistenzbewertung: {e}")
-        return 0
+        log.update({"status": "failed", "output": 0, "error": str(e)})
+        return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
 
-def evaluate_length(validated_chapters):
-    """
-    Bewertet die Länge der Kapitel mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 20.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob die Kapitel in ihrer Länge einheitlich und angemessen sind.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 20)
-    except Exception as e:
-        logger.error(f"Fehler bei der Längenbewertung: {e}")
-        return 0
-
-def evaluate_summaries(validated_chapters):
-    """
-    Bewertet die Qualität der Kapitelzusammenfassungen mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 20.
-    """
-    try:
-        prompt = """
-        Überprüfe die Qualität der Zusammenfassungen für die Kapitel.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelzusammenfassungen:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            summary = chapter.get("Summary", "Keine Zusammenfassung vorhanden")
-            prompt += f"- Kapitel: {chapter['Title']}, Zusammenfassung: {summary}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 20)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Kapitelzusammenfassungen: {e}")
-        return 0
-
-def evaluate_transitions(validated_chapters):
-    """
-    Bewertet die Übergänge zwischen den Kapiteln mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 20.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob die Übergänge zwischen den Kapiteln logisch und fließend sind.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 20)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Übergänge: {e}")
-        return 0
-
-def evaluate_relevance(validated_chapters):
-    """
-    Bewertet die Relevanz der Kapitel mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 20.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob jedes Kapitel einen wesentlichen Beitrag zur Gesamtidee des Buches leistet.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 20)
-    except Exception as e:
-        logger.error(f"Fehler bei der Relevanzbewertung: {e}")
-        return 0
-    
-def evaluate_focus(validated_chapters):
-    """
-    Bewertet den Fokus der Absätze mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob die Absätze der Kapitel jeweils ein klares und spezifisches Thema behandeln.
-        Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 25)
-    except Exception as e:
-        logger.error(f"Fehler bei der Fokusbewertung: {e}")
-        return 0
-
-def evaluate_linkage(validated_chapters):
-    """
-    Bewertet die Verknüpfung der Absätze mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob die Absätze logisch miteinander verknüpft sind.
-        Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 25)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Verknüpfung: {e}")
-        return 0
-
-def evaluate_flow(validated_chapters):
-    """
-    Bewertet den Lesefluss der Absätze mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob die Absätze den natürlichen Lesefluss fördern.
-        Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 25)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung des Leseflusses: {e}")
-        return 0
-
-def evaluate_paragraph_length(validated_chapters):
-    """
-    Bewertet die Länge der Absätze mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob die Absätze in ihrer Länge weder zu kurz noch zu lang sind.
-        Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 25)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Absatzlänge: {e}")
-        return 0
-
-def evaluate_audience(validated_chapters):
-    """
-    Bewertet, ob die Buchart den Erwartungen der Zielgruppe entspricht.
-    Rückgabe: Punktzahl zwischen 0 und 33.33.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob die Buchart den Erwartungen der Zielgruppe entspricht.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return (score / 20) * 33.33  # Skaliert auf maximal 33.33 Punkte
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Zielgruppe: {e}")
-        return 0
-
-def evaluate_format(validated_chapters):
-    """
-    Bewertet, ob die Buchart für das Thema und die Zielgruppe geeignet ist.
-    Rückgabe: Punktzahl zwischen 0 und 33.33.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob die Buchart für das Thema und die Zielgruppe passend gewählt ist.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return (score / 20) * 33.33  # Skaliert auf maximal 33.33 Punkte
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Formateignung: {e}")
-        return 0
-
-def evaluate_innovation(validated_chapters):
-    """
-    Bewertet, ob das Buch in seiner Art neue Ansätze bietet.
-    Rückgabe: Punktzahl zwischen 0 und 33.33.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob das Buch in seiner Art innovative Ansätze bietet oder bewährten Mustern folgt.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return (score / 20) * 33.33  # Skaliert auf maximal 33.33 Punkte
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Innovativität: {e}")
-        return 0
-
-def evaluate_research(validated_chapters):
-    """
-    Bewertet die Tiefe der Recherche mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe die Tiefe der Recherche in den Kapiteln.
-        Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 25)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Tiefe der Recherche: {e}")
-        return 0
-
-def evaluate_focus_on_topic(validated_chapters):
-    """
-    Bewertet den Fokus auf das Thema mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe, ob die Kapitel fokussiert auf das Thema sind.
-        Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 25)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung des Fokus auf das Thema: {e}")
-        return 0
-
-def evaluate_timeliness(validated_chapters):
-    """
-    Bewertet die Aktualität der Inhalte mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe die Aktualität der Inhalte in den Kapiteln.
-        Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 25)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Aktualität: {e}")
-        return 0
-
-def evaluate_breadth(validated_chapters):
-    """
-    Bewertet die Breite der Inhalte mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe die Breite der Inhalte in den Kapiteln.
-        Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 25)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Breite der Inhalte: {e}")
-        return 0
-
-def evaluate_grammar_consistency(validated_chapters):
-    """
-    Bewertet die grammatikalische Einheitlichkeit der Kapitel mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 50.
-    """
-    try:
-        prompt = """
-        Überprüfe die grammatikalische Einheitlichkeit der Kapitel.
-        Gib eine Bewertung auf einer Skala von 0 bis 50 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 50)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der grammatikalischen Einheitlichkeit: {e}")
-        return 0
-
-def evaluate_revision_quality(validated_chapters):
-    """
-    Bewertet die Qualität der Überarbeitung der Kapitel mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 50.
-    """
-    try:
-        prompt = """
-        Überprüfe die Qualität der Überarbeitung der Kapitel.
-        Gib eine Bewertung auf einer Skala von 0 bis 50 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 50)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Überarbeitungsqualität: {e}")
-        return 0   
-
-
-### !!!!
-def evaluate_buildup(validated_chapters):
-            try:
-                prompt = """
-                Überprüfe den Aufbau der Spannung in den Kapiteln.
-                Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-                Kapitelstruktur:
-                """
-                for chapter in validated_chapters.get("Chapters", []):
-                    prompt += f"- {chapter['Title']}\n"
-
-                llm = OllamaLLM()
-                response = llm._call(prompt).strip()
-                score = int(response)
-                return min(max(score, 0), 25)
-            except Exception as e:
-                logger.error(f"Fehler bei der Bewertung des Spannungsaufbaus: {e}")
-                return 0
-
-def evaluate_twists(validated_chapters):
-            try:
-                prompt = """
-                Überprüfe die Wendepunkte in den Kapiteln.
-                Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-                Kapitelstruktur:
-                """
-                for chapter in validated_chapters.get("Chapters", []):
-                    prompt += f"- {chapter['Title']}\n"
-
-                llm = OllamaLLM()
-                response = llm._call(prompt).strip()
-                score = int(response)
-                return min(max(score, 0), 25)
-            except Exception as e:
-                logger.error(f"Fehler bei der Bewertung der Wendepunkte: {e}")
-                return 0
-
-def evaluate_character_development(validated_chapters):
-            try:
-                prompt = """
-                Überprüfe die Charakterentwicklung in den Kapiteln.
-                Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-                Kapitelstruktur:
-                """
-                for chapter in validated_chapters.get("Chapters", []):
-                    prompt += f"- {chapter['Title']}\n"
-
-                llm = OllamaLLM()
-                response = llm._call(prompt).strip()
-                score = int(response)
-                return min(max(score, 0), 25)
-            except Exception as e:
-                logger.error(f"Fehler bei der Bewertung der Charakterentwicklung: {e}")
-                return 0
-
-def evaluate_cliffhangers(validated_chapters):
-            try:
-                prompt = """
-                Überprüfe die Cliffhanger in den Kapiteln.
-                Gib eine Bewertung auf einer Skala von 0 bis 25 ab.
-                Kapitelstruktur:
-                """
-                for chapter in validated_chapters.get("Chapters", []):
-                    prompt += f"- {chapter['Title']}\n"
-
-                llm = OllamaLLM()
-                response = llm._call(prompt).strip()
-                score = int(response)
-                return min(max(score, 0), 25)
-            except Exception as e:
-                logger.error(f"Fehler bei der Bewertung der Cliffhanger: {e}")
-                return 0####### !!!
-            
-def evaluate_tone(validated_chapters):
-    """
-    Bewertet die Tonalität des Schreibstils mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe die Tonalität des Schreibstils in den Kapiteln.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 20)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Tonalität: {e}")
-        return 0
-    
-def evaluate_variety(validated_chapters):
-    """
-    Bewertet die Abwechslung im Schreibstil mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe die Abwechslung im Schreibstil der Kapitel.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 20)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Abwechslung: {e}")
-        return 0
-    
-def evaluate_imagery(validated_chapters):
-    """
-    Bewertet die Verwendung von Sprachbildern mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe die Verwendung von Sprachbildern in den Kapiteln.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 20)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Sprachbilder: {e}")
-        return 0
-    
-def evaluate_authenticity(validated_chapters):
-    """
-    Bewertet die Authentizität des Schreibstils mithilfe der KI.
-    Rückgabe: Punktzahl zwischen 0 und 25.
-    """
-    try:
-        prompt = """
-        Überprüfe die Authentizität des Schreibstils in den Kapiteln.
-        Gib eine Bewertung auf einer Skala von 0 bis 20 ab.
-        Kapitelstruktur:
-        """
-        for chapter in validated_chapters.get("Chapters", []):
-            prompt += f"- {chapter['Title']}\n"
-
-        llm = OllamaLLM()
-        response = llm._call(prompt).strip()
-        score = int(response)
-        return min(max(score, 0), 20)
-    except Exception as e:
-        logger.error(f"Fehler bei der Bewertung der Authentizität: {e}")
-        return 0
-    
 
 # Buchbewertung 
 
@@ -1979,21 +1577,53 @@ def map_score_to_grade(score):
         return "Fehler"
 
 # Final Score Calculation
-def calculate_final_score(weighted_scores):
+def calculate_final_score(weighted_scores_with_details):
     """
-    Berechnet die Endnote basierend auf den gewichteten Bewertungen.
+    Berechnet die Endnote basierend auf gewichteten Bewertungen.
     """
     try:
-        total_score = sum(weighted_scores)
-        average_score = total_score / len(weighted_scores)  # Durchschnitt berechnen
-        final_grade = map_score_to_grade(average_score)  # Note anhand der Tabelle ermitteln
-        return {"score": round(average_score, 2), "grade": final_grade}
+        # Gewichtungen für universelle Bewertung
+        weights = [1.5, 1.5, 1, 2, 1.5, 1.5, 1]  # Kapitel, Absätze, Buchart, Inhalt, Grammatik, Stil, Spannung
+
+        # Validierung der Eingabestruktur
+        if all(isinstance(entry, (int, float)) for entry in weighted_scores_with_details):
+            logger.info("Numerische Werte in weighted_scores_with_details erkannt.")
+            # Konvertiere numerische Werte in das erwartete Format
+            weighted_scores_with_details = [
+                {"output": score, "log": {"agent": f"Agent {i + 1}", "explanation": "Keine Erklärung verfügbar"}}
+                for i, score in enumerate(weighted_scores_with_details)
+            ]
+        elif not all(isinstance(entry, dict) and "output" in entry and "log" in entry for entry in weighted_scores_with_details):
+            logger.error(f"Unerwartetes Format in weighted_scores_with_details: {weighted_scores_with_details}")
+            return {"score": 0, "grade": "Fehler", "details": []}
+
+        # Überprüfen, ob Gewichtungen und Ergebnisse übereinstimmen
+        if len(weighted_scores_with_details) != len(weights):
+            logger.warning(f"Anzahl der Ergebnisse ({len(weighted_scores_with_details)}) stimmt nicht mit der Anzahl der Gewichtungen ({len(weights)}) überein.")
+            weights = weights[:len(weighted_scores_with_details)]
+
+        weighted_total = 0
+        total_weight = sum(weights)
+
+        for i, result in enumerate(weighted_scores_with_details):
+            score = result["output"]  # Hole die Punktzahl
+            weight = weights[i]
+            weighted_total += score * weight
+
+        # Berechne den gewichteten Durchschnitt
+        weighted_average = weighted_total / total_weight
+
+        # Bestimme die Note
+        final_grade = map_score_to_grade(weighted_average)
+
+        return {
+            "score": round(weighted_average, 2),
+            "grade": final_grade,
+            "details": []  # Entfernt category und explanation, da sie redundant sind
+        }
     except Exception as e:
         logger.error(f"Fehler bei der Berechnung der Endnote: {e}")
-        return {"score": 0, "grade": "Fehler"}
-
-
-
+        return {"score": 0, "grade": "Fehler", "details": []}
 
 # Initialisiere das Agentensystem
 agent_system = AgentSystem()
@@ -2003,235 +1633,12 @@ agent_system.add_agent(synopsis_agent, kontrolliert=True)
 agent_system.add_agent(chapter_agent, kontrolliert=True)
 agent_system.add_agent(chapter_validation_agent, kontrolliert=False)
 agent_system.add_agent(writing_agent, kontrolliert=True)
-
-#-----------------------------------------------------
-class ChatAgent:
-    def __init__(self, vectorstore):
-        self.vectorstore = vectorstore
-
-    def chat(self, user_input):
-        log = {"agent": "ChatAgent", "status": "running", "details": []}
-        try:
-            # Kontext abrufen
-            logger.debug("Rufe den vollständigen Kontext ab...")
-            context = self.get_context_all()
-            logger.debug(f"Erhaltener Kontext:\n{context}")
-
-            # Aktualisierter Prompt für die KI
-            prompt = f"""
-            Dies ist ein fortlaufender Chat. Der Kontext enthält alle vorherigen Interaktionen zwischen dem Benutzer und der KI.
-
-            Kontext:
-            {context}
-
-            Neue Benutzeranfrage:
-            {user_input}
-
-            Basierend auf dem Kontext und der neuen Anfrage, gib bitte eine passende Antwort:
-            """
-            logger.debug(f"Prompt für ChatAgent:\n{prompt}")
-            
-            # KI anfragen
-            llm = OllamaLLM()
-            response = llm._call(prompt).strip()
-            logger.debug(f"Antwort von LLM:\n{response}")
-
-            # Kontext speichern
-            self.store_context("User Input", user_input)
-            self.store_context("AI Response", response)
-
-            log.update({
-                "status": "completed",
-                "output": response,
-                "details": ["Chat erfolgreich abgeschlossen."]
-            })
-            return {"log": log, "final_response": response}
-        
-        except Exception as e:
-            log.update({"status": "failed", "output": f"Fehler: {str(e)}"})
-            logger.error(f"Fehler im ChatAgent: {e}")
-            return {"log": log, "final_response": f"Fehler: {str(e)}"}
-
-    def get_next_document_id(self):
-        """Ermittelt die nächste ID basierend auf der Anzahl der gespeicherten Dokumente."""
-        try:
-            all_data = self.vectorstore.get()  # Alle Daten abrufen
-            existing_ids = all_data.get("ids", [])
-            return str(len(existing_ids) + 1)
-        except Exception as e:
-            logger.error(f"Fehler beim Abrufen der nächsten ID: {e}")
-            return "1"  # Fallback auf ID "1", falls ein Fehler auftritt
-
-    def store_context(self, label, data):
-        """Speichert den Kontext in ChromaDB mit einer fortlaufenden ID."""
-        try:
-            doc_id = self.get_next_document_id()  # Zugriff auf die Instanzmethode
-            metadata = {"timestamp": datetime.now().isoformat()}
-            logger.info(f"Speichere Kontext: {label} -> {data} (ID: {doc_id})")  # Nur die ersten 100 Zeichen loggen
-
-            # Dokument speichern
-            self.vectorstore.upsert(
-                documents=[f"{label}: {data}"],
-                ids=[doc_id],
-                metadatas=[metadata]
-            )
-            logger.debug("Speichern erfolgreich.")
-        except Exception as e:
-            logger.error(f"Fehler beim Speichern des Kontexts: {e}")
-
-    def get_context(self):
-        """Ruft den gespeicherten Kontext aus ChromaDB ab."""
-        try:
-            logger.debug("Abfrage aller Dokumente aus der Collection.")
-            results = self.vectorstore.get()  # Alle Dokumente abrufen
-            documents = results.get("documents", [])
-            logger.info(f"Kontext erfolgreich abgerufen: {len(documents)} Dokument(e) gefunden.")
-            return "\n".join(documents)
-        except Exception as e:
-            logger.error(f"Fehler beim Abrufen des Kontexts: {e}")
-            return "Standardkontext: Keine vorherigen Daten gefunden."
-
-    def get_context_all(self):
-        """Ruft alle gespeicherten Dokumente ab."""
-        try:
-            results = self.vectorstore.get()  # Alle Daten aus der Collection abrufen
-            documents = results.get("documents", [])
-            if not documents:
-                logger.warning("Keine gespeicherten Dokumente gefunden.")
-                return "Keine gespeicherten Dokumente verfügbar."
-            logger.info(f"{len(documents)} Dokument(e) erfolgreich abgerufen.")
-            return "\n".join(documents)
-        except Exception as e:
-            logger.error(f"Fehler beim Abrufen aller Dokumente: {e}")
-            return "Standardkontext: Keine Dokumente gefunden."
-
-class DuckDuckGoSearch:
-    """DuckDuckGo-Suche."""
-
-    def perform_search(self, query):
-        try:
-            logger.info(f"Suche nach: {query}")
-            max_results = 10  # Ziel: 10 relevante Ergebnisse
-            collected_results = []
-            logger.info(f"Suche nach: {query}")
-            # Führe die Suche durch
-            results = DDGS().text(query, region='de-de', safesearch='Off', max_results=50)  # Höhere Anzahl abrufen, um zu filtern
-            #fallback without region search und query format anpassen
-            if not results:
-                results = DDGS().text(query, region='wt-wt', safesearch='Off', max_results=50)  # Höhere Anzahl abrufen, um zu filtern
-            if not results:
-                results = DDGS().text(query, safesearch='Off', max_results=50)  # Höhere Anzahl abrufen, um zu filtern
-            
-            logger.info(f"Anzahl der Suchergebnisse: {len(results)}")
-            logger.info(f"Ergebnisse: {results}")
-
-            if not results:
-                logger.warning("Keine Ergebnisse gefunden.")
-                return {"results": []}
-
-            # Filtere Ergebnisse mit Titel, Link und Snippet
-            for result in results:
-                if (
-                    "title" in result and result["title"].strip() and
-                    "href" in result and result["href"].strip() and
-                    "body" in result and result["body"].strip()
-                ):
-                    collected_results.append({
-                        "title": result["title"].strip(),
-                        "link": result["href"].strip(),
-                        "snippet": result["body"].strip()
-                    })
-
-                # Beende die Schleife, sobald 10 Ergebnisse erreicht wurden
-                if len(collected_results) >= max_results:
-                    break
-
-            # Rückgabe der gesammelten Ergebnisse
-            logger.info(f"Gefundene relevante Ergebnisse: {len(collected_results)}")
-            return {"results": collected_results}
-
-        except Exception as e:
-            return {"error": f"Fehler bei der DuckDuckGo-Suche: {str(e)}"}
-        
-@app.route('/api/generate', methods=['POST'])
-def generate():
-    try:
-        data = request.get_json()
-        user_input = data.get("user_input", "")
-        min_chapter = data.get("min_chapter", 0)  # min_chapter erfassen
-        min_subchapter = data.get("min_subchapter", 0)  # min_subchapter erfassen
-        logger.info(f"Received request: user_input={user_input}, min_chapter={min_chapter}")
-        
-        # min_chapter an run_agents übergeben
-        result = agent_system.run_agents(user_input, min_chapter=min_chapter, min_subchapter=min_subchapter)
-        if not result or "final_response" not in result:
-            raise ValueError("Die Antwortstruktur ist unvollständig.")
-        
-        logger.info(f"Result: {result}")
-        return jsonify(result)
-    except Exception as e:
-        logger.error(f"Error during request processing: {e}")
-        return jsonify({"error": f"Fehler: {str(e)}"}), 500
-
-@app.route('/api/chat', methods=['POST'])
-def chat():
-    try:
-        data = request.get_json()
-        user_input = data.get("user_input", "")
-        logger.info(f"Received chat request: user_input={user_input}")
-        
-        # Chat-Agent erstellen
-        chat_agent = ChatAgent(vectorstore)
-        result = chat_agent.chat(user_input)
-
-        if not result or "final_response" not in result:
-            raise ValueError("Die Antwortstruktur ist unvollständig.")
-        
-        logger.info(f"Result: {result}")
-        return jsonify(result)
-    except Exception as e:
-        logger.error(f"Error during chat request processing: {e}")
-        return jsonify({"error": f"Fehler: {str(e)}"}), 500
-    
-@app.route('/api/search', methods=['POST'])
-def search():
-    try:
-        # Anfrage-Daten verarbeiten
-        data = request.get_json()
-        request_input = data.get("request_input", "").strip()
-        if not request_input:
-            raise ValueError("Die Suchanfrage ist leer. Bitte einen gültigen Suchbegriff angeben.")
-
-        request_input = request_input.replace('"', '').replace("'", "").strip()
-
-        logger.info(f"Received search request: request_input={request_input}")
-
-        # DuckDuckGo-Suche durchführen
-        search_agent = DuckDuckGoSearch()
-        result = search_agent.perform_search(query=request_input)
-
-        # Überprüfen, ob Ergebnisse vorhanden sind
-        if not result or not result.get("results"):
-            logger.warning("Keine relevanten Ergebnisse gefunden.")
-            return jsonify({"results": [], "message": "Keine relevanten Ergebnisse gefunden."})
-
-        logger.info(f"Search Result: {result}")
-        return jsonify(result)
-
-    except ValueError as e:
-        logger.error(f"Validation Error: {e}")
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        logger.error(f"Error during search request processing: {e}")
-        return jsonify({"error": f"Fehler: {str(e)}"}), 500
-
-# CORS aktivieren
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    return response
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+agent_system.add_agent(generate_summary, kontrolliert=True)
+agent_system.add_agent(validate_summary, kontrolliert=False)
+agent_system.add_agent(evaluate_chapters, kontrolliert=False)
+agent_system.add_agent(evaluate_paragraphs, kontrolliert=False)
+agent_system.add_agent(evaluate_book_type, kontrolliert=False)
+agent_system.add_agent(evaluate_content, kontrolliert=False)
+agent_system.add_agent(evaluate_grammar, kontrolliert=False)
+agent_system.add_agent(evaluate_style, kontrolliert=False)
+agent_system.add_agent(evaluate_tension, kontrolliert=False)
