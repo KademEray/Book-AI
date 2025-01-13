@@ -9,7 +9,7 @@ class OllamaLLM:
             response = requests.post(
                 "http://127.0.0.1:1234/v1/chat/completions",  # API-Endpunkt
                 json={
-                    "model": "granite-3.1-8b-instruct",  # Modellname
+                    "model": "dolphin3.0-llama3.1-8b",  # Modellname
                     "messages": [
                         { "role": "system", "content": "Gebe eine Antwort zu dem Prompt von dem User ohne weitere Hinweise, Informationen, Kontext oder sonstiges sondern nur zu dem Prompt antworten" },  # Systemrolle mit Anweisung
                         { "role": "user", "content": prompt }  # Benutzerrolle mit Eingabe
