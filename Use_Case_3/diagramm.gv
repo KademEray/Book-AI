@@ -1,0 +1,116 @@
+digraph G {
+concentrate=true;
+splines="ortho";
+rankdir="LR";
+subgraph legend{
+    rank = min;
+    label = "legend";
+    Legend [shape=none, margin=0, label = <
+        <table cellspacing="0" cellpadding="0" border="1"><tr><td>Code2flow Legend</td></tr><tr><td>
+        <table cellspacing="0">
+        <tr><td>Regular function</td><td width="50px" bgcolor='#cccccc'></td></tr>
+        <tr><td>Trunk function (nothing calls this)</td><td bgcolor='#966F33'></td></tr>
+        <tr><td>Leaf function (this calls nothing else)</td><td bgcolor='#6db33f'></td></tr>
+        <tr><td>Function call</td><td><font color='black'>&#8594;</font></td></tr>
+        </table></td></tr></table>
+        >];
+}node_2a99d49a [label="0: (global)()" name="agent::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_fa0540c4 [label="31: __init__()" name="agent::AgentSystem.__init__" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_9b6f7cdc [label="35: add_agent()" name="agent::AgentSystem.add_agent" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_e8faa508 [label="205: get_context()" name="agent::AgentSystem.get_context" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_348bec82 [label="217: get_context_all()" name="agent::AgentSystem.get_context_all" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_9eea8c13 [label="178: get_next_document_id()" name="agent::AgentSystem.get_next_document_id" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_e12fddc7 [label="38: run_agents()" name="agent::AgentSystem.run_agents" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_d50a0545 [label="188: store_context()" name="agent::AgentSystem.store_context" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_d7691a11 [label="390: SearchQueryAgent()" name="agent::SearchQueryAgent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_cbbd18d0 [label="1063: build_chapter_dictionary()" name="agent::build_chapter_dictionary" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_c0af57ad [label="1695: calculate_final_score()" name="agent::calculate_final_score" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_cb21cf9a [label="792: chapter_agent()" name="agent::chapter_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_ba216663 [label="1124: chapter_validation_agent()" name="agent::chapter_validation_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_7080a59e [label="325: decision_agent()" name="agent::decision_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_5fad4f25 [label="1003: extract_chapter_list()" name="agent::extract_chapter_list" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_a2ef6a3b [label="1344: generate_summary()" name="agent::generate_summary" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_5ee0391d [label="249: get_next_book_name()" name="agent::get_next_book_name" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_271d0cbd [label="1653: map_score_to_grade()" name="agent::map_score_to_grade" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_3ad4779f [label="261: save_evaluation_to_txt()" name="agent::save_evaluation_to_txt" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_bf33e9cd [label="901: subchapter_agent()" name="agent::subchapter_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_4b0f0259 [label="556: synopsis_agent()" name="agent::synopsis_agent" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_47fb0d2f [label="576: synopsis_validation_agent()" name="agent::synopsis_validation_agent" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_67006913 [label="1045: validate_chapter_structure()" name="agent::validate_chapter_structure" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_934d1d81 [label="500: validate_search_query()" name="agent::validate_search_query" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_c2ac3540 [label="1361: validate_summary()" name="agent::validate_summary" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_685ee311 [label="624: validation_agent()" name="agent::validation_agent" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_304290c9 [label="650: validation_agent_content()" name="agent::validation_agent_content" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_ecefe79a [label="1262: writing_agent()" name="agent::writing_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_2a99d49a -> node_fa0540c4 [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_2a99d49a -> node_9b6f7cdc [color="#56B4E9" penwidth="2"];
+node_e12fddc7 -> node_e8faa508 [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_d50a0545 [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_d50a0545 [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_d50a0545 [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_d50a0545 [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_c0af57ad [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_cb21cf9a [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_ba216663 [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_7080a59e [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_a2ef6a3b [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_3ad4779f [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_4b0f0259 [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_47fb0d2f [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_c2ac3540 [color="#CC79A7" penwidth="2"];
+node_e12fddc7 -> node_ecefe79a [color="#CC79A7" penwidth="2"];
+node_d50a0545 -> node_9eea8c13 [color="#0072B2" penwidth="2"];
+node_d7691a11 -> node_d50a0545 [color="#E69F00" penwidth="2"];
+node_d7691a11 -> node_934d1d81 [color="#E69F00" penwidth="2"];
+node_c0af57ad -> node_271d0cbd [color="#0072B2" penwidth="2"];
+node_cb21cf9a -> node_348bec82 [color="#56B4E9" penwidth="2"];
+node_cb21cf9a -> node_cbbd18d0 [color="#56B4E9" penwidth="2"];
+node_cb21cf9a -> node_cbbd18d0 [color="#56B4E9" penwidth="2"];
+node_cb21cf9a -> node_ba216663 [color="#56B4E9" penwidth="2"];
+node_cb21cf9a -> node_5fad4f25 [color="#56B4E9" penwidth="2"];
+node_cb21cf9a -> node_5fad4f25 [color="#56B4E9" penwidth="2"];
+node_cb21cf9a -> node_bf33e9cd [color="#56B4E9" penwidth="2"];
+node_cb21cf9a -> node_67006913 [color="#56B4E9" penwidth="2"];
+node_ba216663 -> node_e8faa508 [color="#009E73" penwidth="2"];
+node_ba216663 -> node_d50a0545 [color="#009E73" penwidth="2"];
+node_7080a59e -> node_d7691a11 [color="#D55E00" penwidth="2"];
+node_3ad4779f -> node_5ee0391d [color="#CC79A7" penwidth="2"];
+node_bf33e9cd -> node_5fad4f25 [color="#0072B2" penwidth="2"];
+node_bf33e9cd -> node_5fad4f25 [color="#0072B2" penwidth="2"];
+node_bf33e9cd -> node_67006913 [color="#0072B2" penwidth="2"];
+node_bf33e9cd -> node_67006913 [color="#0072B2" penwidth="2"];
+node_c2ac3540 -> node_d50a0545 [color="#000000" penwidth="2"];
+node_c2ac3540 -> node_d50a0545 [color="#000000" penwidth="2"];
+node_304290c9 -> node_e8faa508 [color="#E69F00" penwidth="2"];
+node_ecefe79a -> node_e8faa508 [color="#56B4E9" penwidth="2"];
+node_ecefe79a -> node_d50a0545 [color="#56B4E9" penwidth="2"];
+node_ecefe79a -> node_7080a59e [color="#56B4E9" penwidth="2"];
+node_ecefe79a -> node_685ee311 [color="#56B4E9" penwidth="2"];
+subgraph cluster_a8151ff4 {
+    node_5ee0391d node_3ad4779f node_7080a59e node_d7691a11 node_934d1d81 node_4b0f0259 node_47fb0d2f node_685ee311 node_304290c9 node_cb21cf9a node_bf33e9cd node_5fad4f25 node_67006913 node_cbbd18d0 node_ba216663 node_ecefe79a node_a2ef6a3b node_c2ac3540 node_271d0cbd node_c0af57ad node_2a99d49a;
+    label="File: agent";
+    name="agent";
+    style="filled";
+    graph[style=dotted];
+    subgraph cluster_60f17521 {
+        node_fa0540c4 node_9b6f7cdc node_e12fddc7 node_9eea8c13 node_d50a0545 node_e8faa508 node_348bec82;
+        label="Class: AgentSystem";
+        name="AgentSystem";
+        style="filled";
+        graph[style=dotted];
+    };
+};
+}

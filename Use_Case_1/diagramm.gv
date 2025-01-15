@@ -1,0 +1,114 @@
+digraph G {
+concentrate=true;
+splines="ortho";
+rankdir="LR";
+subgraph legend{
+    rank = min;
+    label = "legend";
+    Legend [shape=none, margin=0, label = <
+        <table cellspacing="0" cellpadding="0" border="1"><tr><td>Code2flow Legend</td></tr><tr><td>
+        <table cellspacing="0">
+        <tr><td>Regular function</td><td width="50px" bgcolor='#cccccc'></td></tr>
+        <tr><td>Trunk function (nothing calls this)</td><td bgcolor='#966F33'></td></tr>
+        <tr><td>Leaf function (this calls nothing else)</td><td bgcolor='#6db33f'></td></tr>
+        <tr><td>Function call</td><td><font color='black'>&#8594;</font></td></tr>
+        </table></td></tr></table>
+        >];
+}node_354ec821 [label="0: (global)()" name="agent::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_bcae6a22 [label="31: __init__()" name="agent::AgentSystem.__init__" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_76278803 [label="35: add_agent()" name="agent::AgentSystem.add_agent" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_14356a3b [label="205: get_context()" name="agent::AgentSystem.get_context" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_6da83dab [label="217: get_context_all()" name="agent::AgentSystem.get_context_all" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_aa9ed282 [label="178: get_next_document_id()" name="agent::AgentSystem.get_next_document_id" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_f38d598f [label="38: run_agents()" name="agent::AgentSystem.run_agents" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_d7e236f4 [label="188: store_context()" name="agent::AgentSystem.store_context" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_0530fa6c [label="390: SearchQueryAgent()" name="agent::SearchQueryAgent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_f9448847 [label="947: build_chapter_dictionary()" name="agent::build_chapter_dictionary" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_c03f2bdb [label="1579: calculate_final_score()" name="agent::calculate_final_score" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_1ba568ff [label="676: chapter_agent()" name="agent::chapter_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_03e43065 [label="1008: chapter_validation_agent()" name="agent::chapter_validation_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_29afd876 [label="325: decision_agent()" name="agent::decision_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_2e01828e [label="887: extract_chapter_list()" name="agent::extract_chapter_list" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_765b7d6d [label="1228: generate_summary()" name="agent::generate_summary" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_8df52ba4 [label="249: get_next_book_name()" name="agent::get_next_book_name" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_d3f91a87 [label="1537: map_score_to_grade()" name="agent::map_score_to_grade" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_95507742 [label="261: save_evaluation_to_txt()" name="agent::save_evaluation_to_txt" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_026b8341 [label="785: subchapter_agent()" name="agent::subchapter_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_1fca850a [label="556: synopsis_agent()" name="agent::synopsis_agent" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_156afcd2 [label="576: synopsis_validation_agent()" name="agent::synopsis_validation_agent" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_6bbddca1 [label="929: validate_chapter_structure()" name="agent::validate_chapter_structure" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_def53e16 [label="500: validate_search_query()" name="agent::validate_search_query" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_881248a6 [label="1245: validate_summary()" name="agent::validate_summary" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_961fe87b [label="624: validation_agent()" name="agent::validation_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_3334f835 [label="1146: writing_agent()" name="agent::writing_agent" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_354ec821 -> node_bcae6a22 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_354ec821 -> node_76278803 [color="#E69F00" penwidth="2"];
+node_f38d598f -> node_14356a3b [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_d7e236f4 [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_d7e236f4 [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_d7e236f4 [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_d7e236f4 [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_c03f2bdb [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_1ba568ff [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_03e43065 [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_29afd876 [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_765b7d6d [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_95507742 [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_1fca850a [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_156afcd2 [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_881248a6 [color="#CC79A7" penwidth="2"];
+node_f38d598f -> node_3334f835 [color="#CC79A7" penwidth="2"];
+node_d7e236f4 -> node_aa9ed282 [color="#F0E442" penwidth="2"];
+node_0530fa6c -> node_d7e236f4 [color="#F0E442" penwidth="2"];
+node_0530fa6c -> node_def53e16 [color="#F0E442" penwidth="2"];
+node_c03f2bdb -> node_d3f91a87 [color="#009E73" penwidth="2"];
+node_1ba568ff -> node_6da83dab [color="#CC79A7" penwidth="2"];
+node_1ba568ff -> node_f9448847 [color="#CC79A7" penwidth="2"];
+node_1ba568ff -> node_f9448847 [color="#CC79A7" penwidth="2"];
+node_1ba568ff -> node_03e43065 [color="#CC79A7" penwidth="2"];
+node_1ba568ff -> node_2e01828e [color="#CC79A7" penwidth="2"];
+node_1ba568ff -> node_2e01828e [color="#CC79A7" penwidth="2"];
+node_1ba568ff -> node_026b8341 [color="#CC79A7" penwidth="2"];
+node_1ba568ff -> node_6bbddca1 [color="#CC79A7" penwidth="2"];
+node_03e43065 -> node_14356a3b [color="#0072B2" penwidth="2"];
+node_03e43065 -> node_d7e236f4 [color="#0072B2" penwidth="2"];
+node_29afd876 -> node_0530fa6c [color="#D55E00" penwidth="2"];
+node_95507742 -> node_8df52ba4 [color="#56B4E9" penwidth="2"];
+node_026b8341 -> node_2e01828e [color="#E69F00" penwidth="2"];
+node_026b8341 -> node_2e01828e [color="#E69F00" penwidth="2"];
+node_026b8341 -> node_6bbddca1 [color="#E69F00" penwidth="2"];
+node_026b8341 -> node_6bbddca1 [color="#E69F00" penwidth="2"];
+node_881248a6 -> node_d7e236f4 [color="#D55E00" penwidth="2"];
+node_881248a6 -> node_d7e236f4 [color="#D55E00" penwidth="2"];
+node_961fe87b -> node_14356a3b [color="#009E73" penwidth="2"];
+node_3334f835 -> node_14356a3b [color="#0072B2" penwidth="2"];
+node_3334f835 -> node_d7e236f4 [color="#0072B2" penwidth="2"];
+node_3334f835 -> node_29afd876 [color="#0072B2" penwidth="2"];
+node_3334f835 -> node_961fe87b [color="#0072B2" penwidth="2"];
+subgraph cluster_5cffbf2e {
+    node_8df52ba4 node_95507742 node_29afd876 node_0530fa6c node_def53e16 node_1fca850a node_156afcd2 node_961fe87b node_1ba568ff node_026b8341 node_2e01828e node_6bbddca1 node_f9448847 node_03e43065 node_3334f835 node_765b7d6d node_881248a6 node_d3f91a87 node_c03f2bdb node_354ec821;
+    label="File: agent";
+    name="agent";
+    style="filled";
+    graph[style=dotted];
+    subgraph cluster_ef6f01a3 {
+        node_bcae6a22 node_76278803 node_f38d598f node_aa9ed282 node_d7e236f4 node_14356a3b node_6da83dab;
+        label="Class: AgentSystem";
+        name="AgentSystem";
+        style="filled";
+        graph[style=dotted];
+    };
+};
+}
