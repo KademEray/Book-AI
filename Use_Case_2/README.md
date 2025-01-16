@@ -1,4 +1,4 @@
-## Use Case 1 Architektur
+## Use Case 2 Architektur
 
 ![alt text](diagramm.png)
 

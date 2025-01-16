@@ -1,5 +1,5 @@
 ## Use Case 3 Architektur
 
-Architektur in der Datei diagramm
+![alt text](diagramm.png)
 
 Erstellt durch code2flow
