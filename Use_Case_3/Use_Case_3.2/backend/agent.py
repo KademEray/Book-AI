@@ -623,8 +623,18 @@ def synopsis_validation_agent(user_input, output):
 # Validierungs-Agent
 def validation_agent(user_input, output):
     """
-    Führt die Validierung des Unterkapitelinhalts durch alle fünf Agenten durch.
-    Bricht die Schleife sofort ab, wenn ein Agent fehlschlägt.
+    Validates the given user input and output using a series of validation agents.
+    This function sequentially runs the input and output through multiple validation agents:
+    - validation_agent_content
+    - validation_agent_logic
+    - validation_agent_language
+    If any validation agent fails, the function logs an error and returns a failure status.
+    If all validations pass, the function logs a success message and returns a completed status.
+    Args:
+        user_input (str): The user input to be validated.
+        output (str): The output to be validated.
+    Returns:
+        dict: A dictionary containing the validation log with status and output message.
     """
     agents = [
         validation_agent_content,
@@ -648,6 +658,17 @@ def validation_agent(user_input, output):
 
 ## 1. Inhaltlicher Validierungsagent (Original-Agent erweitert)
 def validation_agent_content(user_input, output):
+    """
+    Validates the content of the output based on the user input and context.
+    This function logs the validation process, retrieves the context from the agent system,
+    constructs a prompt for the language model to validate the output, and updates the log
+    with the validation result.
+    Args:
+        user_input (str): The input provided by the user.
+        output (str): The output that needs to be validated.
+    Returns:
+        dict: A dictionary containing the log with the status and validation result.
+    """
     log = {"agent": "ValidationAgent", "status": "processing"}
 
     try:
@@ -701,6 +722,19 @@ def validation_agent_content(user_input, output):
 
 ## 2. Logischer Validierungsagent
 def validation_agent_logic(user_input, output):
+    """
+    Validates the logical consistency of the given output using a language model.
+    Args:
+        user_input (str): The input provided by the user.
+        output (str): The output to be validated for logical consistency.
+    Returns:
+        dict: A dictionary containing the log of the validation process with keys:
+            - "agent" (str): The name of the agent.
+            - "status" (str): The status of the validation process ("processing", "completed", or "failed").
+            - "output" (str): The result of the validation, including reasons for failure if applicable.
+    Raises:
+        Exception: If an error occurs during the validation process.
+    """
     log = {"agent": "LogicValidationAgent", "status": "processing"}
 
     try:
@@ -746,6 +780,16 @@ def validation_agent_logic(user_input, output):
 
 ## 3. Sprachlicher Validierungsagent
 def validation_agent_language(user_input, output):
+    """
+    Validates the linguistic correctness of the given output.
+    This function uses a language model to check the given output for grammatical, spelling, and readability errors.
+    It logs the process and updates the log status based on the validation result.
+    Args:
+        user_input (str): The input provided by the user.
+        output (str): The output to be validated for linguistic correctness.
+    Returns:
+        dict: A dictionary containing the log with the status and output of the validation process.
+    """
     log = {"agent": "LanguageValidationAgent", "status": "processing"}
 
     try:
