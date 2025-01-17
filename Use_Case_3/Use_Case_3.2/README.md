@@ -43,11 +43,9 @@ Diese Agenten arbeiten unabhängig voneinander und gewährleisten eine mehrstufi
    - **Use Case 3.1**: `llama-3.2-3b-instruct`
    - **Use Case 3.2**: `dolphin3.0-llama3.1-8b` (leistungsstärker, ideal für kreative und komplexe Inhalte).
 
-2. **Validierungsprozesse**:
-   - **Use Case 3.1**: Standard-Dreifach-Validierung.
    
 
-3. **Anwendungsszenarien**:
+2. **Anwendungsszenarien**:
    - **Use Case 3.1**: Geeignet für Projekte mit hohem Qualitätsanspruch.
    - **Use Case 3.2**: Ideal für Projekte mit maximalem Anspruch an Kreativität und Genauigkeit.
 

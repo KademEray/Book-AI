@@ -40,11 +40,10 @@ Die Zusammenarbeit dieser Agenten gewährleistet, dass die Inhalte sowohl techni
    - **Use Case 2.1**: `llama-3.2-3b-instruct`
    - **Use Case 2.2**: `dolphin3.0-llama3.1-8b` (leistungsstärker, ideal für komplexe Texte).
 
-2. **Validierungsprozesse**:
-   - **Use Case 2.1**: Standard-Dual-Validierung.
+
   
 
-3. **Anwendungsszenarien**:
+2. **Anwendungsszenarien**:
    - **Use Case 2.1**: Geeignet für kürzere und weniger komplexe Inhalte.
    - **Use Case 2.2**: Optimal für ausführliche und anspruchsvolle Projekte.
 
