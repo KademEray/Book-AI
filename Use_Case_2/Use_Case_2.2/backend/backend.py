@@ -31,6 +31,22 @@ app = Flask(__name__)
 
 @app.route('/api/generate', methods=['POST'])
 def generate():
+    """
+    Endpoint to generate content based on user input.
+    This endpoint receives a POST request with JSON payload containing user input,
+    minimum chapter, and minimum subchapter. It processes the input using the AgentSystem
+    and returns the generated result.
+    Request JSON structure:
+    {
+        "user_input": "<string>",
+        "min_chapter": <int>,
+        "min_subchapter": <int>
+    }
+    Returns:
+        JSON: The generated result or an error message with status code 500 in case of failure.
+    Raises:
+        ValueError: If the response structure is incomplete.
+    """
     try:
         data = request.get_json()
         user_input = data.get("user_input", "")
@@ -52,6 +68,17 @@ def generate():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
+    """
+    Handle a chat request by processing user input and generating a response.
+    This function receives a JSON payload from a request, extracts the user input,
+    and uses a ChatAgent to generate a response. The response is then returned
+    as a JSON object. If an error occurs during processing, an error message is
+    returned with a 500 status code.
+    Returns:
+        Response: A JSON response containing the chat result or an error message.
+    Raises:
+        ValueError: If the response structure from the ChatAgent is incomplete.
+    """
     try:
         data = request.get_json()
         user_input = data.get("user_input", "")
@@ -72,6 +99,21 @@ def chat():
     
 @app.route('/api/search', methods=['POST'])
 def search():
+    """
+    Handles search requests by processing the input, performing a DuckDuckGo search, and returning the results.
+    This function performs the following steps:
+    1. Processes the request data to extract the search input.
+    2. Validates the search input to ensure it is not empty.
+    3. Logs the received search request.
+    4. Performs a search using the DuckDuckGoSearch agent.
+    5. Checks if the search results are available and returns them.
+    6. Handles and logs any errors that occur during the process.
+    Returns:
+        Response: A JSON response containing the search results or an error message.
+    Raises:
+        ValueError: If the search input is empty.
+        Exception: For any other errors that occur during the search request processing.
+    """
     try:
         # Anfrage-Daten verarbeiten
         data = request.get_json()
@@ -104,6 +146,17 @@ def search():
     
 @app.route('/api/save_chat', methods=['POST'])
 def save_chat():
+    """
+    Saves the chat history to a specified file in JSON format.
+    This function retrieves the chat history and filename from the JSON payload
+    of the request. It then saves the chat history to a file in the specified
+    directory. If the directory does not exist, it will be created.
+    Returns:
+        Response: A JSON response indicating success or failure of the save operation.
+    Raises:
+        Exception: If there is an error during the save process, an error message
+                   will be logged and a JSON response with the error will be returned.
+    """
     """
     Speichert den gesamten Chatverlauf in einer Datei im Ordner Chat_Saves.
     """

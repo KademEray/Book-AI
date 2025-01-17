@@ -29,13 +29,51 @@ logger = logging.getLogger(__name__)
 
 class AgentSystem:
     def __init__(self):
+        """
+        Initializes a new instance of the agent class.
+
+        Attributes:
+            agents (list): A list to store agent instances.
+            session_id (str): A unique identifier for the session, generated using UUID.
+        """
         self.agents = []
-        self.session_id = str(uuid.uuid4())  # Eindeutige ID für die Sitzung
+        self.session_id = str(uuid.uuid4())
 
     def add_agent(self, agent_function, kontrolliert=False):
+        """
+        Adds an agent to the list of agents.
+
+        Args:
+            agent_function (function): The function that defines the agent's behavior.
+            kontrolliert (bool, optional): A flag indicating whether the agent is controlled. Defaults to False.
+
+        Returns:
+            None
+        """
         self.agents.append({"function": agent_function, "kontrolliert": kontrolliert})
 
     def run_agents(self, user_input, min_chapter=0, min_subchapter=0):
+        """
+        Executes a series of agents to process the user input and generate a final book evaluation.
+        Args:
+            user_input (str): The input provided by the user.
+            min_chapter (int, optional): Minimum number of chapters to generate. Defaults to 0.
+            min_subchapter (int, optional): Minimum number of subchapters to generate. Defaults to 0.
+        Returns:
+            dict: A dictionary containing the final grade and detailed results of the book evaluation.
+        Raises:
+            ValueError: If the terminal output is incomplete.
+        Steps:
+            1. Decision Agent: Determines if an internet search for the synopsis is required.
+            2. Synopsis Agent: Generates and validates the synopsis.
+            3. Chapter Structure Agent: Generates and validates the chapter structure.
+            4. Writing Agent: Writes the chapters based on the validated structure.
+            5. Summary Generation and Validation: Creates and validates the summary of the final text.
+            6. Book Evaluation: Evaluates the book based on various criteria and calculates the final grade.
+        Logs:
+            - Logs various debug, info, and error messages throughout the process.
+            - Stores intermediate and final results in the context.
+        """
         logger.debug(f"run_agents called with user_input: {user_input}, min_chapter: {min_chapter}")
         response_data = {"steps": [], "final_response": ""}
         context = self.get_context()
@@ -176,6 +214,16 @@ class AgentSystem:
 
 
     def get_next_document_id(self):
+        """
+        Determines the next document ID based on the number of stored documents.
+
+        This method retrieves all stored data from the vector store and calculates
+        the next document ID by counting the existing IDs. If an error occurs during
+        the retrieval process, it logs the error and returns "1" as a fallback ID.
+
+        Returns:
+            str: The next document ID as a string.
+        """
         """Ermittelt die nächste ID basierend auf der Anzahl der gespeicherten Dokumente."""
         try:
             all_data = vectorstore.get()  # Alle Daten abrufen
@@ -186,6 +234,18 @@ class AgentSystem:
             return "1"  # Fallback auf ID "1", falls ein Fehler auftritt
 
     def store_context(self, label, data):
+        """
+        Stores the context in ChromaDB with a sequential ID.
+        Args:
+            label (str): The label associated with the context.
+            data (str): The context data to be stored.
+        Raises:
+            Exception: If there is an error while storing the context.
+        Logs:
+            Info: Logs the label and data being stored along with the document ID.
+            Debug: Logs a message indicating successful storage.
+            Error: Logs any error that occurs during storage.
+        """
         """Speichert den Kontext in ChromaDB mit einer fortlaufenden ID."""
         try:
             doc_id = self.get_next_document_id()  # Zugriff auf die Instanzmethode
@@ -203,6 +263,18 @@ class AgentSystem:
             logger.error(f"Fehler beim Speichern des Kontexts: {e}")
 
     def get_context(self):
+        """
+        Retrieves the stored context from ChromaDB.
+
+        This method fetches all documents from the collection in the vector store.
+        If successful, it returns the documents as a single string, with each document
+        separated by a newline character. If an error occurs during retrieval, it logs
+        the error and returns a default context message.
+
+        Returns:
+            str: The concatenated string of all documents or a default context message
+                 if an error occurs.
+        """
         """Ruft den gespeicherten Kontext aus ChromaDB ab."""
         try:
             logger.debug("Abfrage aller Dokumente aus der Collection.")
@@ -215,6 +287,23 @@ class AgentSystem:
             return "Standardkontext: Keine vorherigen Daten gefunden."
 
     def get_context_all(self):
+        """
+        Retrieves all documents from the vector store collection.
+
+        This method attempts to fetch all documents stored in the vector store.
+        If no documents are found, it logs a warning and returns a message indicating
+        that no documents are available. If documents are successfully retrieved,
+        it logs the number of documents and returns them as a single string, with each
+        document separated by a newline character.
+
+        Returns:
+            str: A string containing all retrieved documents separated by newlines,
+                 or a message indicating that no documents are available.
+
+        Raises:
+            Exception: If an error occurs during the retrieval process, it logs the error
+                       and returns a default context message indicating no documents were found.
+        """
         try:
             results = vectorstore.get()  # Alle Daten aus der Collection abrufen
             documents = results.get("documents", [])
@@ -228,6 +317,19 @@ class AgentSystem:
             return "Standardkontext: Keine Dokumente gefunden."
 
     def validate_saved_data(self):
+        """
+        Validates if the saved data is directly retrievable.
+
+        This method attempts to retrieve documents from the vector store
+        using the session ID stored in the instance. It logs the process
+        of validation and handles any exceptions that may occur.
+
+        Returns:
+            list: A list of documents if retrieval is successful, otherwise an empty list.
+
+        Raises:
+            Exception: If there is an error during the validation process, it logs the error and returns an empty list.
+        """
         """Validiert, ob gespeicherte Daten direkt abrufbar sind."""
         try:
             logger.debug("Validiere gespeicherte Daten...")
@@ -242,13 +344,31 @@ class AgentSystem:
 
 def sanitize_filename(filename):
     """
-    Entfernt ungültige Zeichen aus einem Dateinamen.
+    Sanitize the given filename by removing any invalid characters.
+    This function removes characters that are not allowed in filenames on most
+    operating systems, such as <, >, :, ", /, \, |, ?, and *. It also trims any
+    leading or trailing whitespace from the filename.
+    Args:
+        filename (str): The filename to be sanitized.
+    Returns:
+        str: The sanitized filename with invalid characters removed and whitespace trimmed.
     """
+
     return re.sub(r'[<>:"/\\|?*]', '', filename).strip()
 
 def get_next_book_name(output_dir):
     """
-    Findet den nächsten verfügbaren Buchnamen im Format 'book_x', wobei x eine fortlaufende Zahl ist.
+    Generates the name for the next book file in the specified output directory.
+
+    This function scans the given directory for files matching the pattern 'book_<number>.txt',
+    extracts the numbers from these filenames, and returns the name for the next book file
+    with an incremented number.
+
+    Args:
+        output_dir (str): The directory where the book files are stored.
+
+    Returns:
+        str: The name for the next book file in the format 'book_<next_number>.txt'.
     """
     existing_files = os.listdir(output_dir)
     book_numbers = [
@@ -260,7 +380,47 @@ def get_next_book_name(output_dir):
 
 def save_evaluation_to_txt(response_data):
     """
-    Speichert die Buchbewertung in einer strukturierten .txt-Datei im Ordner "Ergebnisse".
+    Saves the evaluation data to a text file.
+    This function creates a directory if it does not exist, determines the next book name,
+    validates the structure of the response_data, and writes the evaluation details to a text file.
+    Args:
+        response_data (dict): A dictionary containing the evaluation data. It must have the following structure:
+            {
+                "evaluation": {
+                    "final_grade": {
+                        "score": float,
+                        "grade": str
+                    },
+                    "detailed_results": [
+                        {
+                            "agent": str,
+                            "explanation": str,
+                            "output": str
+                        },
+                        ...
+                    ],
+                    "final_text": {
+                        "Chapters": [
+                            {
+                                "Number": int,
+                                "Title": str,
+                                "Subchapters": [
+                                    {
+                                        "Number": int,
+                                        "Title": str,
+                                        "Content": str
+                                    },
+                                    ...
+                                ]
+                            },
+                            ...
+                        ]
+                    }
+                }
+            }
+    Raises:
+        ValueError: If the required keys are missing in the response_data.
+        Exception: If there is an error during the file writing process.
     """
     try:
         # Ordner erstellen, falls nicht vorhanden
@@ -324,12 +484,15 @@ def save_evaluation_to_txt(response_data):
 
 def decision_agent(context, input_text, task_type="Synopsis"):
     """
-    Entscheidet, ob eine Internetsuche erforderlich ist und führt bei Bedarf eine Suchanfrage aus.
-
-    :param context: Der aktuelle Kontext.
-    :param input_text: Der Benutzerinput oder aktuelle Textabschnitt.
-    :param task_type: Art der Aufgabe ("Synopsis", "Unterkapitel").
-    :return: Ein Dictionary mit Log und Ergebnis ("Ja" oder "Nein") sowie optional der Suchanfrage.
+    The decision_agent function determines whether an internet search is necessary based on the provided context, input text, and task type.
+    Args:
+        context (str): The context in which the decision is to be made.
+        input_text (str): The input text that needs to be evaluated.
+        task_type (str, optional): The type of task to be performed. Defaults to "Synopsis". 
+                                   Other possible value is "Unterkapitel".
+    Returns:
+        dict: A dictionary containing the log of the decision process and the output. 
+              If the decision is "Ja", it also includes the result of the SearchQueryAgent.
     """
     log = {"agent": "DecisionAgent", "status": "running", "details": []}
 
@@ -389,13 +552,17 @@ def decision_agent(context, input_text, task_type="Synopsis"):
 
 def SearchQueryAgent(input_text, context, task_type="Synopsis"):
     """
-    Erstellt eine präzise Suchanfrage basierend auf dem Benutzerinput und validiert den Output iterativ.
-    Sendet die validierte Suchanfrage an den /api/search-Endpunkt und speichert die Ergebnisse in ChromaDB.
-
-    :param user_input: Der Benutzerinput oder aktuelle Textabschnitt.
-    :param task_type: Art der Aufgabe ("Synopsis", "Unterkapitel").
-    :return: Ein Dictionary mit Log und den Ergebnissen des Suchendpunkts.
+    Generates and validates a search query based on user input and context, then sends the validated query to an API endpoint.
+    Args:
+        input_text (str or dict): The user's input text for generating the search query.
+        context (str or dict): The context in which the search query is generated.
+        task_type (str, optional): The type of task for which the search query is generated. Defaults to "Synopsis".
+    Returns:
+        dict: A dictionary containing the log of the process and either the search results or an error message.
+    Raises:
+        Exception: If an error occurs during the generation, validation, or sending of the search query.
     """
+        
     log = {"agent": "SearchQueryAgent", "status": "running", "details": []}
     validated_search_query = None
     iteration = 1
@@ -499,11 +666,18 @@ def SearchQueryAgent(input_text, context, task_type="Synopsis"):
 
 def validate_search_query(input_text, context, search_query):
     """
-    Validiert die generierte Suchanfrage und gibt bei Fehlern Korrekturhinweise.
-
-    :param user_input: Der Benutzerinput oder aktuelle Textabschnitt.
-    :param search_query: Die generierte Suchanfrage.
-    :return: Ein Dictionary mit Log und dem Validierungsergebnis.
+    Validates a generated search query based on the provided user input and context.
+    Args:
+        input_text (str): The user's input text.
+        context (str): The context in which the search query is generated.
+        search_query (str): The generated search query to be validated.
+    Returns:
+        dict: A dictionary containing the log of the validation process with the following keys:
+            - "agent" (str): The name of the agent performing the validation.
+            - "status" (str): The status of the validation process ("running", "completed", or "failed").
+            - "details" (list): Additional details about the validation process.
+            - "output" (str or dict): The result of the validation. If validation is successful, a success message is returned.
+                                      If validation fails, a dictionary with "reason" and "corrections" is returned.
     """
     log = {"agent": "ValidationAgent", "status": "running", "details": []}
     try:
@@ -554,6 +728,17 @@ def validate_search_query(input_text, context, search_query):
 
 # Synopsis-Agent
 def synopsis_agent(user_input, context):
+    """
+    Generates a concise synopsis based on the provided user input and context.
+    Args:
+        user_input (str): The input provided by the user that needs to be summarized.
+        context (str): The context in which the user input should be interpreted.
+    Returns:
+        dict: A dictionary containing the log and the output. The log includes the agent name, status, and details.
+              The output is either the generated synopsis or an error message if an exception occurred.
+    Raises:
+        Exception: If an error occurs during the generation of the synopsis.
+    """
     log = {"agent": "SynopsisAgent", "status": "running", "details": []}
     try:
         prompt = f"""
@@ -574,6 +759,17 @@ def synopsis_agent(user_input, context):
         return {"log": log, "output": f"Fehler: {str(e)}"}
     
 def synopsis_validation_agent(user_input, output):
+    """
+    Validates the given output as a synopsis based on the user input.
+    This function uses a language model to check if the provided output is a good synopsis
+    for the given user input. It logs the process and returns a log dictionary with the 
+    validation status and result.
+    Args:
+        user_input (str): The user's input or request.
+        output (str): The output to be validated as a synopsis.
+    Returns:
+        dict: A dictionary containing the log with the validation status and result.
+    """
     log = {"agent": "synopsis_validation_agent", "status": "processing"}
     try:
         logger.debug("[DEBUG] synopsis_validation_agent gestartet")
@@ -622,6 +818,19 @@ def synopsis_validation_agent(user_input, output):
 
 # Validierungs-Agent
 def validation_agent(user_input, output):
+    """
+    Validates the given output against the user input and context using a language model.
+    Args:
+        user_input (str): The input provided by the user.
+        output (str): The output to be validated.
+    Returns:
+        dict: A dictionary containing the log of the validation process with the following keys:
+            - "agent" (str): The name of the agent ("ValidationAgent").
+            - "status" (str): The status of the validation process ("processing", "completed", or "failed").
+            - "output" (str): The result of the validation process, including any error messages or validation results.
+    Raises:
+        Exception: If an error occurs during the validation process, it is caught and logged.
+    """
     log = {"agent": "ValidationAgent", "status": "processing"}
 
     try:
@@ -644,7 +853,7 @@ def validation_agent(user_input, output):
         Ausgabe:
         {output}
 
-        Antworte mit:
+        Sehr wichtig Antworte immer am Anfang mit:
         1. "Ja" oder "Nein", ob die Ausgabe inhaltlich korrekt ist.
         2. Begründung, warum die Ausgabe korrekt oder falsch ist.
         """
@@ -674,6 +883,17 @@ def validation_agent(user_input, output):
     return {"log": log}
 
 def chapter_agent(min_chapter=0, min_subchapter=0):
+    """
+    Generates and validates chapters and subchapters for a document based on stored contexts.
+    Args:
+        min_chapter (int, optional): Minimum number of chapters to generate. Defaults to 0.
+        min_subchapter (int, optional): Minimum number of subchapters to generate for each chapter. Defaults to 0.
+    Returns:
+        dict: A dictionary containing the log and the output. The log includes the status and details of the generation process. 
+              The output contains the validated chapter dictionary if the process is successful, or an error message if it fails.
+    Raises:
+        ValueError: If no context is available, no chapters are generated, or subchapter generation fails.
+    """
     log = {"agent": "ChapterAgent", "status": "running", "details": []}
     try:
         logger.debug("Rufe alle gespeicherten Kontexte ab...")
@@ -783,6 +1003,25 @@ def chapter_agent(min_chapter=0, min_subchapter=0):
         return {"log": log, "output": f"Error: {str(e)}"}
 
 def subchapter_agent(current_chapter, min_subchapter):
+    """
+    Generates and validates a list of subchapters for a given chapter using a language model.
+    Args:
+        current_chapter (dict): A dictionary containing the current chapter's details, including "Number" and "Title".
+        min_subchapter (int): The minimum number of subchapters required.
+    Returns:
+        dict: A dictionary containing the log of the operation and the updated chapter with the generated subchapters.
+    Raises:
+        Exception: If there is an error during the generation or validation of subchapters.
+    The function performs the following steps:
+    1. Initializes a log dictionary to track the status and details of the operation.
+    2. Uses a language model (OllamaLLM) to generate a list of subchapters based on the given chapter's title and number.
+    3. Validates the generated subchapters to ensure they meet the specified requirements.
+    4. If the generated subchapters do not meet the minimum required number or have structural issues, the function attempts to correct them.
+    5. Adds the validated subchapters to the current chapter's "Subchapters" list.
+    6. Updates the log with the status of the operation and returns the log along with the updated chapter.
+    Note:
+        The function logs detailed debug and error messages to help with troubleshooting and validation.
+    """
     log = {"agent": "SubchapterAgent", "status": "running", "details": []}
     try:
         subchapter_validated = False
@@ -885,6 +1124,17 @@ def subchapter_agent(current_chapter, min_subchapter):
         return {"log": log, "chapter": current_chapter}
 
 def extract_chapter_list(response, is_subchapter=False, chapter_number=None):
+    """
+    Extracts a list of chapters or subchapters from a given response string.
+    Args:
+        response (str): The response string containing chapters or subchapters.
+        is_subchapter (bool, optional): Flag indicating whether to extract subchapters. Defaults to False.
+        chapter_number (int, optional): The chapter number to extract subchapters from. Required if is_subchapter is True.
+    Returns:
+        list: A list of extracted chapters or subchapters.
+    Raises:
+        ValueError: If no valid chapters or subchapters are found or if an error occurs during extraction.
+    """
     try:
         logger.debug("Starte die Extraktion der Kapitel-/Subkapitelliste.")
         logger.debug(f"Eingehende Antwort:\n{response}")
@@ -927,6 +1177,20 @@ def extract_chapter_list(response, is_subchapter=False, chapter_number=None):
         raise ValueError(f"Fehler bei der Extraktion: {str(e)}")
 
 def validate_chapter_structure(item_list, is_subchapter=False):
+    """
+    Validates the structure of a list of chapter or subchapter titles.
+    Args:
+        item_list (list): A list of strings representing chapter or subchapter titles.
+        is_subchapter (bool): A flag indicating whether the items are subchapters. 
+                              If True, the items are treated as subchapters. 
+                              If False, the items are treated as chapters.
+    Returns:
+        bool: True if all items in the list match the expected pattern, False otherwise.
+    Logs:
+        Logs an error message if the list is empty or if any item does not match the expected pattern.
+        Logs an info message if all items are valid.
+        Logs an error message if an exception occurs during validation.
+    """
     try:
         if not item_list:
             logger.error("Liste ist leer.")
@@ -945,6 +1209,33 @@ def validate_chapter_structure(item_list, is_subchapter=False):
         return False
     
 def build_chapter_dictionary(chapter_list):
+    """
+    Builds a dictionary representation of chapters and subchapters from a list of strings.
+    Args:
+        chapter_list (list of str): A list of strings where each string represents either a chapter or a subchapter.
+            - Chapter format: "Kapitel <number>: <title>"
+            - Subchapter format: "Subchapter <chapter_number>.<subchapter_number>: <title>"
+    Returns:
+        dict: A dictionary with the structure:
+            {
+                "Chapters": [
+                    {
+                        "Number": <chapter_number>,
+                        "Title": <chapter_title>,
+                        "Subchapters": [
+                            {
+                                "Number": <subchapter_number>,
+                                "Title": <subchapter_title>
+                            },
+                            ...
+                        ]
+                    },
+                    ...
+                ]
+    Raises:
+        ValueError: If the chapter list is empty or no valid chapters are found.
+        Exception: For any other errors encountered during processing.
+    """
     try:
         if not chapter_list:
             raise ValueError("Die Kapitel-Liste ist leer.")
@@ -1006,6 +1297,23 @@ def build_chapter_dictionary(chapter_list):
         raise
 
 def chapter_validation_agent(chapter_dict, **kwargs):
+    """
+    Validates the structure and content of chapters and their subchapters.
+    Args:
+        chapter_dict (dict): A dictionary containing the chapters and their details.
+        **kwargs: Additional keyword arguments.
+    Returns:
+        dict: A log dictionary containing the status of the validation, output, and details.
+    The function performs the following steps:
+    1. Retrieves the context for chapter validation.
+    2. Converts the chapter structure into text format for validation.
+    3. Sends a validation request to a language model (LLM) for the overall chapter structure.
+    4. If the chapter structure is invalid, logs the reason and correction suggestions.
+    5. Validates the subchapters of each chapter if they exist.
+    6. If any subchapter structure is invalid, logs the reason and correction suggestions.
+    7. If all chapters and subchapters are valid, logs the success and stores the context.
+    The function handles ValueError and general exceptions, logging appropriate error messages and updating the log dictionary.
+    """
     log = {"agent": "ChapterValidationAgent", "status": "running", "details": []}
     try:
         # Kontext abrufen
@@ -1144,6 +1452,24 @@ def chapter_validation_agent(chapter_dict, **kwargs):
         return {"log": log}
 
 def writing_agent(user_input, validated_chapters):
+    """
+    Processes validated chapters and generates content for each subchapter using a language model.
+    Args:
+        user_input (str): The input provided by the user.
+        validated_chapters (dict): A dictionary containing validated chapters with their titles and subchapters.
+    Returns:
+        dict: A dictionary containing the log of the process and the final generated text for the chapters.
+    The function performs the following steps:
+    1. Initializes a log dictionary to track the status and details of the process.
+    2. Iterates through each chapter in the validated chapters.
+    3. For each chapter, iterates through its subchapters and generates content using a language model.
+    4. Validates the generated content for each subchapter.
+    5. If validation is successful, stores the content and updates the context.
+    6. If any error occurs during the process, logs the error and updates the status to failed.
+    7. Returns the log and the final generated text for the chapters.
+    Raises:
+        ValueError: If no chapter could be successfully processed.
+    """
     log = {"agent": "WritingAgent", "status": "running", "details": []}
     final_text = {"Chapters": []}
 
@@ -1226,7 +1552,14 @@ def writing_agent(user_input, validated_chapters):
         return {"log": log, "output": {}}
     
 def generate_summary(final_text):
-    """Erstellt eine Zusammenfassung des gesamten Textes."""
+    """
+    Generates a summary of the provided text.
+    This function takes a text input and generates a concise summary that covers the main points from each chapter in a logical order without omitting details.
+    Args:
+        final_text (str): The entire text to be summarized.
+    Returns:
+        dict: A dictionary containing the summary of the text. If an error occurs, the dictionary contains an error message.
+    """
     try:
         prompt = f"""
         Aufgabe: Erstelle eine prägnante Zusammenfassung des gesamten Textes.
@@ -1243,13 +1576,32 @@ def generate_summary(final_text):
         return {"Summary": f"Fehler: {str(e)}"}
 
 def validate_summary(summary):
-    """Validiert die erstellte Gesamtszusammenfassung."""
+    """
+    Validates the logical coherence of a given summary.
+    This function uses a language model to check if the provided summary makes logical sense.
+    It performs a rough validation to ensure the text has a correct structure, allowing for minor deviations.
+    If the summary is deemed nonsensical, it returns a validation failure with a reason.
+    Args:
+        summary (dict): A dictionary containing the summary to be validated. 
+                        The dictionary must have a key 'Summary' with the summary text as its value.
+    Returns:
+        dict: A dictionary containing the original summary and the validation result.
+              If validated, the dictionary includes:
+                - "Summary": The original summary text.
+                - "Validated": True.
+              If not validated, the dictionary includes:
+                - "Summary": The original summary text.
+                - "Validated": False.
+                - "Reason": The reason for validation failure.
+    Raises:
+        Exception: If an error occurs during the validation process, it logs the error and returns a failure response.
+    """
+    
     try:
         prompt = f"""
         Zusammenfassung: {summary['Summary']}
 
-        Aufgabe: Überprüfe, ob diese Zusammenfassung die Hauptpunkte des Textes korrekt wiedergibt,
-        logisch aufgebaut ist. Bedenke das ist nur eine Grobe Validierung um zu schauen ob der Text eine korrekte Struktur hat. Antworte mit nur "Ja" oder "Nein" 
+        Aufgabe: Überprüfe, ob diese Zusammenfassung logisch sinn ergibt. Bedenke das ist nur eine Grobe Validierung um zu schauen ob der Text eine korrekte Struktur hat. Bedenke zu dem auch dass die Zusammenfassung nicht alle Chapters beinhaltet, es dient nur als eine ganz grobe Validierung deswegen sei nicht streng. Kleine Abweichungen sind erlaubt, nur wenn die Zusammenfassung unsinn ist dann Nein aber wenn es sinn macht dann Ja. Antworte mit nur "Ja" oder "Nein" 
         und gib eine Begründung, falls "Nein".
         """
         llm = OllamaLLM()
@@ -1289,7 +1641,16 @@ def validate_summary(summary):
 
 def evaluate_chapters(final_text):
     """
-    Bewertet die Kapitel basierend auf Struktur, Konsistenz und Übergängen.
+    Evaluates the chapters of a book based on their structure, consistency, and transitions.
+    Args:
+        final_text (str): The text of the book to be evaluated.
+    Returns:
+        dict: A dictionary containing the evaluation log, the output score, and the explanation.
+            - log (dict): Contains the agent name, status, and details of the evaluation.
+            - output (int): The evaluation score on a scale from 0 to 100.
+            - explanation (str): The explanation for the given score and suggestions for improvement.
+    Raises:
+        ValueError: If no numerical score is found in the response.
     """
     log = {"agent": "ChapterEvaluationAgent", "status": "running", "details": []}
     try:
@@ -1298,7 +1659,7 @@ def evaluate_chapters(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1324,8 +1685,23 @@ def evaluate_chapters(final_text):
 
 def evaluate_paragraphs(final_text):
     """
-    Bewertet die Absätze hinsichtlich Lesefluss, Fokus und Verknüpfung.
+    Evaluates the paragraphs of a given text based on their readability, focus, and logical coherence.
+    Args:
+        final_text (str): The text to be evaluated.
+    Returns:
+        dict: A dictionary containing the evaluation log, the output score, and the explanation.
+            - log (dict): Contains details about the evaluation process.
+                - agent (str): The name of the agent performing the evaluation.
+                - status (str): The status of the evaluation ('running', 'completed', or 'failed').
+                - details (list): Additional details about the evaluation process.
+                - output (int): The evaluation score (0-100).
+                - explanation (str): Explanation of the score and suggestions for improvement.
+            - output (int): The evaluation score (0-100).
+            - explanation (str): Explanation of the score and suggestions for improvement.
+    Raises:
+        ValueError: If no numerical score is found in the response.
     """
+    
     log = {"agent": "ParagraphEvaluationAgent", "status": "running", "details": []}
     try:
         prompt = f"""
@@ -1333,7 +1709,7 @@ def evaluate_paragraphs(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1359,8 +1735,23 @@ def evaluate_paragraphs(final_text):
 
 def evaluate_book_type(final_text):
     """
-    Bewertet die Buchart in Bezug auf Zielgruppe und Thema.
+    Evaluates the type of a book based on its suitability for the target audience and theme.
+    Args:
+        final_text (str): The text of the book to be evaluated.
+    Returns:
+        dict: A dictionary containing the log of the evaluation process, the output score, and the explanation.
+            - log (dict): Contains details about the evaluation process.
+                - agent (str): The name of the agent performing the evaluation.
+                - status (str): The status of the evaluation ('running', 'completed', or 'failed').
+                - details (list): Additional details about the evaluation process.
+                - output (int): The evaluation score (0-100).
+                - explanation (str): The explanation for the given score.
+            - output (int): The evaluation score (0-100).
+            - explanation (str): The explanation for the given score.
+    Raises:
+        ValueError: If no number is found in the response.
     """
+    
     log = {"agent": "BookTypeEvaluationAgent", "status": "running", "details": []}
     try:
         prompt = f"""
@@ -1368,7 +1759,7 @@ def evaluate_book_type(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1392,9 +1783,18 @@ def evaluate_book_type(final_text):
         log.update({"status": "failed", "output": 0, "error": str(e)})
         return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
 
-def evaluate_content(final_text):
+def evaluate_content(final_text):#
     """
-    Bewertet den Inhalt basierend auf Tiefe, Relevanz und Fokus auf das Thema.
+    Evaluates the content of a book based on depth, relevance, and focus on the topic.
+    Args:
+        final_text (str): The text content of the book to be evaluated.
+    Returns:
+        dict: A dictionary containing the evaluation log, output score, and explanation.
+            - log (dict): Contains details about the evaluation process, including agent name, status, and any errors.
+            - output (int): The evaluation score on a scale from 0 to 100.
+            - explanation (str): The explanation for the given score and suggestions for improvement.
+    Raises:
+        ValueError: If no numerical score is found in the response.
     """
     log = {"agent": "ContentEvaluationAgent", "status": "running", "details": []}
     try:
@@ -1403,7 +1803,7 @@ def evaluate_content(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1429,7 +1829,25 @@ def evaluate_content(final_text):
 
 def evaluate_grammar(final_text):
     """
-    Bewertet Grammatik und Rechtschreibung.
+    Evaluates the grammar and spelling of the provided text and returns a score along with an explanation.
+    Args:
+        final_text (str): The text to be evaluated.
+    Returns:
+        dict: A dictionary containing the log of the evaluation process, the output score (0-100), 
+              and an explanation of the score. The dictionary has the following structure:
+              {
+                  "log": {
+                      "agent": "GrammarEvaluationAgent",
+                      "status": "running" | "completed" | "failed",
+                      "details": [],
+                      "output": int,  # The evaluation score (0-100)
+                      "explanation": str  # Explanation of the score
+                  },
+                  "output": int,  # The evaluation score (0-100)
+                  "explanation": str  # Explanation of the score
+              }
+    Raises:
+        ValueError: If no numerical score is found in the response.
     """
     log = {"agent": "GrammarEvaluationAgent", "status": "running", "details": []}
     try:
@@ -1438,7 +1856,7 @@ def evaluate_grammar(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1464,7 +1882,21 @@ def evaluate_grammar(final_text):
 
 def evaluate_style(final_text):
     """
-    Bewertet den Schreibstil hinsichtlich Abwechslung, Tonalität und Authentizität.
+    Evaluates the writing style of a given text based on variety, tone, and authenticity.
+    Args:
+        final_text (str): The text to be evaluated.
+    Returns:
+        dict: A dictionary containing the evaluation log, the output score, and the explanation.
+            - log (dict): Contains details about the evaluation process.
+                - agent (str): The name of the agent performing the evaluation.
+                - status (str): The status of the evaluation ('running', 'completed', 'failed').
+                - details (list): Additional details about the evaluation process.
+                - output (int): The evaluated score (0-100).
+                - explanation (str): The explanation for the given score.
+            - output (int): The evaluated score (0-100).
+            - explanation (str): The explanation for the given score.
+    Raises:
+        ValueError: If no number is found in the response.
     """
     log = {"agent": "StyleEvaluationAgent", "status": "running", "details": []}
     try:
@@ -1473,7 +1905,7 @@ def evaluate_style(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1499,8 +1931,25 @@ def evaluate_style(final_text):
 
 def evaluate_tension(final_text):
     """
-    Bewertet die Spannung des Buches basierend auf Wendepunkten, Aufbau und Charakterentwicklung.
+    Evaluates the tension of a book based on turning points, structure, and character development.
+    Args:
+        final_text (str): The text of the book to be evaluated.
+    Returns:
+        dict: A dictionary containing the log of the evaluation process, the tension score (0-100), 
+              and an explanation of the score. The dictionary has the following keys:
+              - "log": A dictionary with the following keys:
+                  - "agent": The name of the agent performing the evaluation.
+                  - "status": The status of the evaluation process ("running", "completed", or "failed").
+                  - "details": Additional details about the evaluation process.
+                  - "output": The tension score (0-100).
+                  - "explanation": The explanation for the given score.
+                  - "error" (optional): The error message if the evaluation failed.
+              - "output": The tension score (0-100).
+              - "explanation": The explanation for the given score.
+    Raises:
+        ValueError: If no number is found in the response from the language model.
     """
+    
     log = {"agent": "TensionEvaluationAgent", "status": "running", "details": []}
     try:
         prompt = f"""
@@ -1508,7 +1957,7 @@ def evaluate_tension(final_text):
         Text:
         {final_text}
 
-        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab.
+        Gib eine Bewertung so streng wie mögliche auf einer Skala von 0 bis 100 ab. Ohne /100 sondern nur deine Bewertung.
         Erkläre, warum du diese Bewertung vergeben hast, und schlage Verbesserungen vor.
         """
         llm = OllamaLLM()
@@ -1537,8 +1986,32 @@ def evaluate_tension(final_text):
 
 def map_score_to_grade(score):
     """
-    Wandelt eine Punktzahl (0-100) basierend auf der Notentabelle in eine Note um.
+    Maps a numerical score to a corresponding grade.
+    The grading scale is as follows:
+    - 95 <= score <= 100: "1+"
+    - 90 <= score < 95: "1"
+    - 85 <= score < 90: "1-"
+    - 80 <= score < 85: "2+"
+    - 75 <= score < 80: "2"
+    - 70 <= score < 75: "2-"
+    - 65 <= score < 70: "3+"
+    - 60 <= score < 65: "3"
+    - 55 <= score < 60: "3-"
+    - 50 <= score < 55: "4+"
+    - 45 <= score < 50: "4"
+    - 40 <= score < 45: "4-"
+    - 33 <= score < 40: "5+"
+    - 27 <= score < 33: "5"
+    - 20 <= score < 27: "5-"
+    - score < 20: "6"
+    Args:
+        score (int): The numerical score to be converted to a grade.
+    Returns:
+        str: The corresponding grade as a string.
+    Raises:
+        Exception: If an error occurs during the grade calculation.
     """
+
     try:
         if 95 <= score <= 100:
             return "1+"
@@ -1579,7 +2052,17 @@ def map_score_to_grade(score):
 # Final Score Calculation
 def calculate_final_score(weighted_scores_with_details):
     """
-    Berechnet die Endnote basierend auf gewichteten Bewertungen.
+    Calculates the final score based on weighted evaluations.
+    Args:
+        weighted_scores_with_details (list): A list of either numerical scores or dictionaries containing 
+                                             'output' (score) and 'log' (details).
+    Returns:
+        dict: A dictionary containing:
+            - 'score' (float): The weighted average score rounded to two decimal places.
+            - 'grade' (str): The final grade determined by the weighted average score.
+            - 'details' (list): An empty list (details are removed as they are redundant).
+    Raises:
+        Exception: If an error occurs during the calculation process.
     """
     try:
         # Gewichtungen für universelle Bewertung

@@ -11,8 +11,17 @@ BASE_URL = "http://localhost:5000/api"
 
 def stop_backend():
     """
-    Beendet den Prozess, der auf Port 5000 läuft.
+    Terminates the backend process running on port 5000.
+    This function checks for any network connections using port 5000.
+    If a process is found using this port, it attempts to terminate the process.
+    Returns:
+        bool: True if a process using port 5000 was found and terminated, False otherwise.
+    Raises:
+        Exception: If an error occurs while attempting to terminate the process.
+    Prints:
+        str: Messages indicating the status of the process termination.
     """
+     
     try:
         for conn in psutil.net_connections(kind='inet'):  # Direkte Netzwerkverbindungen prüfen
             if conn.laddr.port == 5000:  # Überprüfe, ob der Prozess Port 5000 nutzt
@@ -30,8 +39,18 @@ def stop_backend():
 
 def wait_until_backend_stopped():
     """
-    Wartet, bis kein Prozess mehr auf Port 5000 läuft.
+    Continuously checks if the backend service running on port 5000 has stopped.
+    This function enters an infinite loop where it checks if there is any active
+    network connection on port 5000. If such a connection exists, it prints a message
+    indicating that the backend is still running and waits for 1 second before checking again.
+    Once the connection on port 5000 is no longer found, it prints a message indicating
+    that the backend has successfully stopped and exits the loop.
+    Note:
+        This function uses the `psutil` library to check network connections and the `time`
+        library to introduce a delay between checks. Ensure these libraries are installed
+        and imported before calling this function.
     """
+     
     while True:
         backend_running = any(
             conn.laddr.port == 5000 for conn in psutil.net_connections(kind='inet')
@@ -45,8 +64,20 @@ def wait_until_backend_stopped():
 
 def start_backend():
     """
-    Startet das Backend.
+    Starts the backend server by executing the backend.py script.
+    This function attempts to start the backend server by running the backend.py script
+    located at the specified path. It waits for a short period to allow the server to
+    initialize and then checks if the server is running by sending a request to the
+    BASE_URL.
+    Raises:
+        Exception: If there is an error while starting the backend.
+    Prints:
+        "Backend wird gestartet...": When the backend start process begins.
+        "Backend erfolgreich gestartet.": If the backend starts successfully.
+        "Fehler: Backend konnte nicht gestartet werden.": If the backend fails to start.
+        "Fehler beim Starten des Backends: {e}": If there is an exception during the start process.
     """
+     
     print("Backend wird gestartet...")
     backend_path = "./Use_Case_1/Use_Case_1.2/backend/backend.py"
     try:
@@ -64,7 +95,15 @@ def start_backend():
 
 def show_commands():
     """
-    Zeigt die verfügbaren Befehle an.
+    Displays a list of available commands for the chat application.
+    Commands:
+        - Normal inputs for the chat
+        - `/book` for book generation (requires min_chapter and min_subchapter)
+        - `/search` for a search
+        - `/save` to save the entire chat
+        - `/clear` to stop the backend, delete files, and restart
+        - `/help` to display this list of commands again
+        - `/exit` to stop the backend and end the chat
     """
     print("\nVerfügbare Befehle:")
     print("  - Normale Eingaben für den Chat")
@@ -76,6 +115,24 @@ def show_commands():
     print("  - `/exit` um Backend zu stoppen und den Chat zu beenden\n")
 
 def chat():
+    """
+    Starts the chat application, handles user commands, and interacts with the backend.
+    The function performs the following tasks:
+    - Deletes the log file and Chroma storage folder if they exist.
+    - Starts the backend service.
+    - Displays a welcome message and available commands.
+    - Enters a loop to process user inputs and commands.
+    Commands:
+    - /book: Starts book generation with user-defined parameters.
+    - /search: Initiates a search with a user-provided query.
+    - /save: Saves the chat history to a specified JSON file.
+    - /clear: Stops the backend, clears logs, storage, and chat history, then restarts the backend.
+    - /exit: Stops the backend, clears logs and storage, and exits the chat application.
+    - /help: Displays available commands.
+    For other inputs, it sends the input to the backend chat endpoint and displays the response.
+    Exceptions:
+    - Catches and prints exceptions that occur during file operations, backend interactions, and HTTP requests.
+    """
     try:
         # Logdatei löschen
         log_path = "./Use_Case_1/Use_Case_1.2/backend/backend.log"

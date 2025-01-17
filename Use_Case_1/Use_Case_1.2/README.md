@@ -1,0 +1,1 @@
+LM Studio KI Modell: dolphin3.0-llama3.1-8b

@@ -1,0 +1,1 @@
+LM Studio KI Modell: llama-3.2-3b-instruct

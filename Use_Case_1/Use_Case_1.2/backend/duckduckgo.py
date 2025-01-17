@@ -14,9 +14,34 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class DuckDuckGoSearch:
-    """DuckDuckGo-Suche."""
+    """DuckDuckGo-Search."""
 
     def perform_search(self, query):
+        """
+        Perform a search using the DuckDuckGo search engine and return relevant results.
+        Args:
+            query (str): The search query string.
+        Returns:
+            dict: A dictionary containing the search results or an error message.
+                - If successful, the dictionary contains a key "results" with a list of dictionaries,
+                  each containing "title", "link", and "snippet" of the search result.
+                - If an error occurs, the dictionary contains a key "error" with the error message.
+        Raises:
+            Exception: If an error occurs during the search process.
+        Example:
+            >>> search_results = perform_search("Python programming")
+            >>> print(search_results)
+            {
+                "results": [
+                    {
+                        "title": "Python Programming Language",
+                        "link": "https://www.python.org/",
+                        "snippet": "Python is a programming language that lets you work quickly..."
+                    },
+                    ...
+                ]
+            }
+        """
         try:
             logger.info(f"Suche nach: {query}")
             max_results = 10  # Ziel: 10 relevante Ergebnisse
