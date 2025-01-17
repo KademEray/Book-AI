@@ -19,9 +19,6 @@ def stop_backend():
     Raises:
         Exception: If an error occurs while attempting to terminate the process.
     """
-    """
-    Beendet den Prozess, der auf Port 5000 läuft.
-    """
     try:
         for conn in psutil.net_connections(kind='inet'):  # Direkte Netzwerkverbindungen prüfen
             if conn.laddr.port == 5000:  # Überprüfe, ob der Prozess Port 5000 nutzt
@@ -47,9 +44,6 @@ def wait_until_backend_stopped():
     it prints a message indicating that the backend has successfully stopped and 
     exits the loop.
     """
-    """
-    Wartet, bis kein Prozess mehr auf Port 5000 läuft.
-    """
     while True:
         backend_running = any(
             conn.laddr.port == 5000 for conn in psutil.net_connections(kind='inet')
@@ -62,9 +56,6 @@ def wait_until_backend_stopped():
             break
 
 def start_backend():
-    """
-    Startet das Backend.
-    """
     """
     Starts the backend server by executing the backend.py script.
     This function attempts to start the backend server by running the backend.py script located
@@ -103,9 +94,6 @@ def show_commands():
     - `/clear` to stop the backend, delete files, and restart
     - `/help` to display this list of commands again
     - `/exit` to stop the backend and end the chat
-    """
-    """
-    Zeigt die verfügbaren Befehle an.
     """
     print("\nVerfügbare Befehle:")
     print("  - Normale Eingaben für den Chat")

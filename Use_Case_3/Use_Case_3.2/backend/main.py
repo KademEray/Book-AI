@@ -11,9 +11,6 @@ BASE_URL = "http://localhost:5000/api"
 
 def stop_backend():
     """
-    Beendet den Prozess, der auf Port 5000 läuft.
-    """
-    """
     Terminates the backend process running on port 5000.
     This function checks for any active network connections using port 5000.
     If a process is found using this port, it attempts to terminate the process.
@@ -39,9 +36,6 @@ def stop_backend():
 
 def wait_until_backend_stopped():
     """
-    Wartet, bis kein Prozess mehr auf Port 5000 läuft.
-    """
-    """
     Continuously checks if the backend service running on port 5000 has stopped.
     This function enters an infinite loop where it checks if there is any active 
     network connection on port 5000. If such a connection exists, it prints a 
@@ -62,9 +56,6 @@ def wait_until_backend_stopped():
             break
 
 def start_backend():
-    """
-    Startet das Backend.
-    """
     """
     Starts the backend server by executing the backend.py script.
     This function attempts to start the backend server by running the backend.py script located
@@ -93,9 +84,6 @@ def start_backend():
         print(f"Fehler beim Starten des Backends: {e}")
 
 def show_commands():
-    """
-    Zeigt die verfügbaren Befehle an.
-    """
     """
     Displays a list of available commands for the chat application.
     Commands:

@@ -214,7 +214,6 @@ class AgentSystem:
 
 
     def get_next_document_id(self):
-        """Ermittelt die nächste ID basierend auf der Anzahl der gespeicherten Dokumente."""
         """
         Determines the next document ID based on the number of stored documents.
 
@@ -234,7 +233,6 @@ class AgentSystem:
             return "1"  # Fallback auf ID "1", falls ein Fehler auftritt
 
     def store_context(self, label, data):
-        """Speichert den Kontext in ChromaDB mit einer fortlaufenden ID."""
         """
         Stores the context in ChromaDB with a sequential ID.
         Args:
@@ -263,7 +261,6 @@ class AgentSystem:
             logger.error(f"Fehler beim Speichern des Kontexts: {e}")
 
     def get_context(self):
-        """Ruft den gespeicherten Kontext aus ChromaDB ab."""
         """
         Retrieves the stored context from ChromaDB.
 
@@ -287,6 +284,21 @@ class AgentSystem:
             return "Standardkontext: Keine vorherigen Daten gefunden."
 
     def get_context_all(self):
+        """
+        Retrieves all documents from the vector store collection.
+
+        This method attempts to fetch all documents stored in the vector store.
+        If no documents are found, it logs a warning and returns a message indicating
+        that no documents are available. If documents are successfully retrieved,
+        it logs the number of documents and returns them as a single string, with each
+        document separated by a newline character. In case of an error during retrieval,
+        it logs the error and returns a default context message.
+
+        Returns:
+            str: A string containing all retrieved documents separated by newlines,
+                 or a message indicating that no documents are available, or a default
+                 context message in case of an error.
+        """
         try:
             results = vectorstore.get()  # Alle Daten aus der Collection abrufen
             documents = results.get("documents", [])
@@ -300,7 +312,6 @@ class AgentSystem:
             return "Standardkontext: Keine Dokumente gefunden."
 
     def validate_saved_data(self):
-        """Validiert, ob gespeicherte Daten direkt abrufbar sind."""
         """
         Validates if the saved data is directly retrievable.
 
@@ -327,9 +338,6 @@ class AgentSystem:
 
 def sanitize_filename(filename):
     """
-    Entfernt ungültige Zeichen aus einem Dateinamen.
-    """
-    """
     Sanitize the given filename by removing any invalid characters.
     This function removes characters that are not allowed in filenames on most
     operating systems, such as <, >, :, ", /, \, |, ?, and *. It also trims any
@@ -342,9 +350,6 @@ def sanitize_filename(filename):
     return re.sub(r'[<>:"/\\|?*]', '', filename).strip()
 
 def get_next_book_name(output_dir):
-    """
-    Findet den nächsten verfügbaren Buchnamen im Format 'book_x', wobei x eine fortlaufende Zahl ist.
-    """
     """
     Generates the name for the next book file in the specified output directory.
 
@@ -367,9 +372,6 @@ def get_next_book_name(output_dir):
     return f"book_{next_number}"
 
 def save_evaluation_to_txt(response_data):
-    """
-    Speichert die Buchbewertung in einer strukturierten .txt-Datei im Ordner "Ergebnisse".
-    """
     """
     Saves the evaluation data to a text file.
     This function creates a directory if it does not exist, determines the next book name,
@@ -1676,7 +1678,6 @@ def writing_agent(user_input, validated_chapters):
         return {"log": log, "output": {}}
     
 def generate_summary(final_text):
-    """Erstellt eine Zusammenfassung des gesamten Textes."""
     """
     Generates a summary of the provided text.
     This function takes a text input and generates a concise summary that covers the main points from each chapter in a logical order without omitting details.
@@ -1701,7 +1702,6 @@ def generate_summary(final_text):
         return {"Summary": f"Fehler: {str(e)}"}
 
 def validate_summary(summary):
-    """Validiert die erstellte Gesamtszusammenfassung."""
     """
     Validates the logical coherence of a given summary.
     This function uses a language model to check if the provided summary makes logical sense.
@@ -1766,9 +1766,6 @@ def validate_summary(summary):
 
 def evaluate_chapters(final_text):
     """
-    Bewertet die Kapitel basierend auf Struktur, Konsistenz und Übergängen.
-    """
-    """
     Evaluates the chapters of a book based on their structure, consistency, and transitions.
     Args:
         final_text (str): The text of the book to be evaluated.
@@ -1812,9 +1809,6 @@ def evaluate_chapters(final_text):
         return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
 
 def evaluate_paragraphs(final_text):
-    """
-    Bewertet die Absätze hinsichtlich Lesefluss, Fokus und Verknüpfung.
-    """
     """
     Evaluates the paragraphs of a given text based on their readability, focus, and logical coherence.
     Args:
@@ -1865,9 +1859,6 @@ def evaluate_paragraphs(final_text):
 
 def evaluate_book_type(final_text):
     """
-    Bewertet die Buchart in Bezug auf Zielgruppe und Thema.
-    """
-    """
     Evaluates the type of a book based on its suitability for the target audience and theme.
     Args:
         final_text (str): The text of the book to be evaluated.
@@ -1917,9 +1908,6 @@ def evaluate_book_type(final_text):
 
 def evaluate_content(final_text):
     """
-    Bewertet den Inhalt basierend auf Tiefe, Relevanz und Fokus auf das Thema.
-    """
-    """
     Evaluates the content of a book based on depth, relevance, and focus on the topic.
     Args:
         final_text (str): The text content of the book to be evaluated.
@@ -1963,9 +1951,6 @@ def evaluate_content(final_text):
         return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
 
 def evaluate_grammar(final_text):
-    """
-    Bewertet Grammatik und Rechtschreibung.
-    """
     """
     Evaluates the grammar and spelling of the provided text and returns a score along with an explanation.
     Args:
@@ -2020,9 +2005,6 @@ def evaluate_grammar(final_text):
 
 def evaluate_style(final_text):
     """
-    Bewertet den Schreibstil hinsichtlich Abwechslung, Tonalität und Authentizität.
-    """
-    """
     Evaluates the writing style of a given text based on variety, tone, and authenticity.
     Args:
         final_text (str): The text to be evaluated.
@@ -2071,9 +2053,6 @@ def evaluate_style(final_text):
         return {"log": log, "output": 0, "explanation": "Fehler bei der Bewertung"}
 
 def evaluate_tension(final_text):
-    """
-    Bewertet die Spannung des Buches basierend auf Wendepunkten, Aufbau und Charakterentwicklung.
-    """
     """
     Evaluates the tension of a book based on turning points, structure, and character development.
     Args:
@@ -2196,9 +2175,6 @@ def map_score_to_grade(score):
 
 # Final Score Calculation
 def calculate_final_score(weighted_scores_with_details):
-    """
-    Berechnet die Endnote basierend auf gewichteten Bewertungen.
-    """
     """
     Calculates the final score based on weighted evaluations.
     Args:

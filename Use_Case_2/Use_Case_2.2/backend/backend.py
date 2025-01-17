@@ -157,9 +157,6 @@ def save_chat():
         Exception: If there is an error during the save process, an error message
                    will be logged and a JSON response with the error will be returned.
     """
-    """
-    Speichert den gesamten Chatverlauf in einer Datei im Ordner Chat_Saves.
-    """
     try:
         data = request.get_json()
         chat_history = data.get("chat_history", [])

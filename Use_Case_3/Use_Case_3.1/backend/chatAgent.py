@@ -88,7 +88,16 @@ class ChatAgent:
             return {"log": log, "final_response": f"Fehler: {str(e)}"}
 
     def get_next_document_id(self):
-        """Ermittelt die nächste ID basierend auf der Anzahl der gespeicherten Dokumente."""
+        """
+        Retrieves the next document ID to be used.
+
+        This method fetches all existing data from the vector store and determines
+        the next document ID by incrementing the count of existing IDs. If an error
+        occurs during this process, it logs the error and returns "1" as a fallback.
+
+        Returns:
+            str: The next document ID as a string.
+        """
         try:
             all_data = self.vectorstore.get()  # Alle Daten abrufen
             existing_ids = all_data.get("ids", [])
@@ -110,7 +119,6 @@ class ChatAgent:
             Debug: Logs a message indicating successful storage.
             Error: Logs any error that occurs during the storage process.
         """
-        """Speichert den Kontext in ChromaDB mit einer fortlaufenden ID."""
         try:
             doc_id = self.get_next_document_id()  # Zugriff auf die Instanzmethode
             metadata = {"timestamp": datetime.now().isoformat()}
@@ -127,7 +135,6 @@ class ChatAgent:
             logger.error(f"Fehler beim Speichern des Kontexts: {e}")
 
     def get_context(self):
-        """Ruft den gespeicherten Kontext aus ChromaDB ab."""
         """
         Retrieves all documents from the collection in the vector store.
         This method attempts to fetch all documents stored in the vector store and 
@@ -148,7 +155,6 @@ class ChatAgent:
             return "Standardkontext: Keine vorherigen Daten gefunden."
 
     def get_context_all(self):
-        """Ruft alle gespeicherten Dokumente ab."""
         """
         Retrieves all documents from the vector store.
         This method attempts to fetch all documents stored in the vector store.
