@@ -45,7 +45,7 @@ Diese Agenten arbeiten unabhängig voneinander und gewährleisten eine mehrstufi
 
 2. **Validierungsprozesse**:
    - **Use Case 3.1**: Standard-Dreifach-Validierung.
-   - **Use Case 3.2**: Erweiterte Validierung mit spezialisierten Prüfungen für kreative und faktenbasierte Inhalte.
+   
 
 3. **Anwendungsszenarien**:
    - **Use Case 3.1**: Geeignet für Projekte mit hohem Qualitätsanspruch.

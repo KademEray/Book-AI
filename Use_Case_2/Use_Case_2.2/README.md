@@ -42,7 +42,7 @@ Die Zusammenarbeit dieser Agenten gewährleistet, dass die Inhalte sowohl techni
 
 2. **Validierungsprozesse**:
    - **Use Case 2.1**: Standard-Dual-Validierung.
-   - **Use Case 2.2**: Erweiterte Prüfmechanismen und tiefere Analyse.
+  
 
 3. **Anwendungsszenarien**:
    - **Use Case 2.1**: Geeignet für kürzere und weniger komplexe Inhalte.
