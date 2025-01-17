@@ -4,6 +4,18 @@ import requests
 class OllamaLLM:
     """Wrapper für Ollama LLM."""
     def _call(self, prompt):
+        """
+        Sends a POST request to the LM Studio Chat Completions endpoint with the given prompt and returns the response.
+
+        Args:
+            prompt (str): The user's input prompt to be sent to the model.
+
+        Returns:
+            str: The content of the response message from the model, or an error message if the request fails.
+
+        Raises:
+            requests.exceptions.RequestException: If there is an issue with the connection to the LM Studio.
+        """
         try:
             # POST-Anfrage an den LM Studio Chat Completions Endpunkt
             response = requests.post(
